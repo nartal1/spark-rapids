@@ -16,17 +16,12 @@
 
 package com.nvidia.spark.rapids
 
-import java.sql.Timestamp
-
-import org.apache.spark
-
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.{AnalysisException, DataFrame, SparkSession}
-import org.apache.spark.sql.execution.{SparkPlan, WholeStageCodegenExec}
-import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, BroadcastQueryStageExec, QueryStageExec, ShuffleQueryStageExec}
-import org.apache.spark.sql.execution.aggregate.SortAggregateExec
+import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.adaptive.{BroadcastQueryStageExec, QueryStageExec, ShuffleQueryStageExec}
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{DataType, DataTypes}
+import org.apache.spark.sql.types.DataTypes
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 class HashAggregatesSuite extends SparkQueryCompareTestSuite {
   private val floatAggConf: SparkConf = new SparkConf().set(
@@ -79,7 +74,7 @@ class HashAggregatesSuite extends SparkQueryCompareTestSuite {
       .withColumn("c2", col("c1").mod(lit(10)))
   }
 
-  IGNORE_ORDER_testSparkResultsAreEqual(
+ /* IGNORE_ORDER_testSparkResultsAreEqual(
       "test sort agg with first and last string deterministic case",
       firstDf,
       repart = 2) {
@@ -1675,5 +1670,74 @@ class HashAggregatesSuite extends SparkQueryCompareTestSuite {
            | FROM testTable
            |   group by longs
            |""".stripMargin)
+  }*/
+
+  /*FLOAT_TEST_testSparkResultsAreEqual("Testing bugs", bugsWithoutNullsStrings,
+    conf = replaceHashAggMode("partial"),
+    execsAllowedNonGpu = Seq("HashAggregateExec", "AggregateExpression",
+      "AttributeReference", "Alias", "Sum", "Count", "Max", "Min", "Average", "Cast",
+      "KnownFloatingPointNormalized", "NormalizeNaNAndZero", "GreaterThan", "Literal", "If",
+      "EqualTo", "First", "SortAggregateExec", "Coalesce","ExpandExec", "ProjectExec")) {
+    f => {
+      val res = f.groupBy("longs").
+        agg(count("longs"),
+          avg("doubles"),
+          avg("longs"),
+          countDistinct("doubles"),
+          sum("longs"),
+          min("longs"),
+          max("longs"),
+          countDistinct("ints"))
+      // )
+      f.printSchema()
+      res.explain
+      res.show
+      res
+    }
+  }*/
+
+  def WithoutNulls(session: SparkSession):DataFrame = {
+    import session.sqlContext.implicits._
+    Seq[(java.lang.Long, java.lang.Double, java.lang.Integer)](
+      (100L, 1.0, 99),
+      (500L, 5.0, 98),
+      (600L, 6.0, 97),
+      (100L, 1.0, 89),
+      (100L, 1.0, 99),
+      (500L, 5.0, 98),
+      (600L, 6.0, 96),
+      (100L, 1.0, 89)
+    ).toDF("longs", "doubles", "ints")
+  }
+
+  private val partialOnlyConf = replaceHashAggMode("partial").set(
+    RapidsConf.ENABLE_FLOAT_AGG.key, "true").set(RapidsConf.HAS_NANS.key, "false")
+    .set(RapidsConf.EXPLAIN.key, "ALL")
+
+  private val partialOnlyforStrings=replaceHashAggMode("partial").set(
+    RapidsConf.ENABLE_FLOAT_AGG.key, "true").set(RapidsConf.HAS_NANS.key, "false")
+    .set(RapidsConf.EXPLAIN.key, "ALL").set(RapidsConf.ENABLE_CAST_STRING_TO_FLOAT.key, "true")
+
+  IGNORE_ORDER_ALLOW_NON_GPU_testSparkResultsAreEqual(
+      "Agg expression with filter with nulls", WithoutNulls,
+    execsAllowedNonGpu = Seq("HashAggregateExec", "AggregateExpression",
+      "AttributeReference", "Alias", "Sum", "Count", "Max", "Min", "Average", "Cast",
+      "KnownFloatingPointNormalized", "NormalizeNaNAndZero", "GreaterThan", "Literal", "If",
+      "EqualTo", "First", "SortAggregateExec", "Coalesce","ExpandExec", "ProjectExec"),
+    conf = partialOnlyConf) {
+    frame => frame.createOrReplaceTempView("testTable")
+      val res = frame.sparkSession.sql(
+        s"""
+           | SELECT
+           |   count(distinct ints),
+           |   count(distinct doubles),
+           |   count(longs)
+           | FROM testTable
+           |   group by longs
+           |""".stripMargin)
+      frame.printSchema()
+      res.explain()
+      //res.show
+      res
   }
 }

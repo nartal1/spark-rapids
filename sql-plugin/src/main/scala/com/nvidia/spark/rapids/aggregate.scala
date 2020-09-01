@@ -86,6 +86,14 @@ class GpuHashAggregateMeta(
           // the first batch computed and sent to CPU doesn't contain all the rows required to
           // comput non distinct function(s), then Spark would consider that value as final result
           // (due to First)Falling back to CPU for this special case.
+          val (distinctAggExpressions, nonDistinctAggExpressions) = agg.aggregateExpressions.partition(
+            _.isDistinct)
+
+          System.err.println("DISTINCT EXPRESSION " + distinctAggExpressions)
+          System.err.println("NON DISTINCT EXPRESSION " + nonDistinctAggExpressions)
+          System.err.println("agg.aggregateExpression "+ agg.aggregateExpressions)
+
+        // System.err.println("aggregateExpression "+ aggregateExpressions)
           if (agg.aggregateExpressions.exists(e => e.aggregateFunction.isInstanceOf[First])) {
             val distinctAggs = agg.aggregateExpressions.flatMap(expr =>
               expr.children.map {
@@ -670,6 +678,8 @@ case class GpuHashAggregateExec(
     val inputProjectionsDistinct =
       distinctAggExpressions.flatMap(_.aggregateFunction.inputProjection)
 
+    System.err.println("AGGREGATE EXPRESSION " + aggregateExpressions)
+    System.err.println("DISTINCT EXPRESSION " + distinctAggExpressions.size)
     // Pick merge non-distinct for PartialMerge
     val mergeExpressionsNonDistinct =
       nonDistinctAggExpressions
