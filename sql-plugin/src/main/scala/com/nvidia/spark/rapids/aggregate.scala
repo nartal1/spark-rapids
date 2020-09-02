@@ -17,16 +17,14 @@
 package com.nvidia.spark.rapids
 
 import scala.collection.mutable.ArrayBuffer
-
 import ai.rapids.cudf
 import ai.rapids.cudf.NvtxColor
 import com.nvidia.spark.rapids.GpuMetricNames._
 import com.nvidia.spark.rapids.RapidsPluginImplicits._
-
 import org.apache.spark.TaskContext
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSeq, AttributeSet, Expression, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, AttributeSeq, AttributeSet, Expression, If, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.physical.{AllTuples, ClusteredDistribution, Distribution, Partitioning, UnspecifiedDistribution}
 import org.apache.spark.sql.catalyst.util.truncatedString
@@ -35,7 +33,7 @@ import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, SortAggregat
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.rapids.{CudfAggregate, GpuAggregateExpression, GpuDeclarativeAggregate}
 import org.apache.spark.sql.types.{DoubleType, FloatType}
-import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.sql.vectorized.{ColumnVector, ColumnarBatch}
 
 class GpuHashAggregateMeta(
     agg: HashAggregateExec,
@@ -86,28 +84,28 @@ class GpuHashAggregateMeta(
           // the first batch computed and sent to CPU doesn't contain all the rows required to
           // comput non distinct function(s), then Spark would consider that value as final result
           // (due to First)Falling back to CPU for this special case.
-          val (distinctAggExpressions, nonDistinctAggExpressions) = agg.aggregateExpressions.partition(
-            _.isDistinct)
-
-          System.err.println("DISTINCT EXPRESSION " + distinctAggExpressions)
-          System.err.println("NON DISTINCT EXPRESSION " + nonDistinctAggExpressions)
-          System.err.println("agg.aggregateExpression "+ agg.aggregateExpressions)
-
-        // System.err.println("aggregateExpression "+ aggregateExpressions)
           if (agg.aggregateExpressions.exists(e => e.aggregateFunction.isInstanceOf[First])) {
-            val distinctAggs = agg.aggregateExpressions.flatMap(expr =>
-              expr.children.map {
-                _.collect {
-                  case a: Count => a
-                  case b: Average => b
+            agg.aggregateExpressions.foreach(e => {
+              if (e.aggregateFunction.isInstanceOf[First]) {
+                val t = e.aggregateFunction.asInstanceOf[First].child.isInstanceOf[If]
+
+                if (t) {
+                  val allRefs =  e.aggregateFunction.references.toSeq
+
+                  val checkType = allRefs.map(x => x.isInstanceOf[AttributeReference])
+                  System.err.println("REFERENCES of IF is "+ allRefs)
+                  System.err.println("Type is " + checkType)
+                  System.err.println("AGGREGATE FUNCTION IS " + e.aggregateFunction)
+                  willNotWorkOnGpu("Aggregate of non distinct functions with multiple distinct " +
+                    "functions is non deterministic for non distinct functions as it is computed " +
+                    "using " +
+                    "First.")
+
+                //  System.err.println("AGGREGATE EXPRESSION " + agg.aggregateExpressions)
+                //  System.err.println("IS INSTANCE OF " + t)
                 }
-              })
-            if (distinctAggs.size > 1) {
-              willNotWorkOnGpu("Aggregate of non distinct functions with multiple distinct " +
-                "functions is non deterministic for non distinct functions as it is computed " +
-                "using " +
-                "First.")
-            }
+              }
+            })
           }
         case "final" => if (hashAggMode.contains(Partial) || hashAggMode.contains(Complete)) {
           // replacing only Final hash aggregates, so a Partial or Complete one should not replace
@@ -210,18 +208,24 @@ class GpuSortAggregateMeta(
           // compute non distinct function(s), then Spark would consider that value as final result
           // (due to First)Falling back to CPU for this special case.
           if (agg.aggregateExpressions.exists(e => e.aggregateFunction.isInstanceOf[First])) {
-            val distinctAggs = agg.aggregateExpressions.flatMap(expr =>
-              expr.children.map {
-                _.collect {
-                  case a: Count => a
-                  case b: Average => b
+            agg.aggregateExpressions.foreach(e => {
+              if (e.aggregateFunction.isInstanceOf[First]) {
+                val t = e.aggregateFunction.asInstanceOf[First].child.isInstanceOf[If]
+                if (t ) {
+                 val allRefs =  e.aggregateFunction.references.toSeq
+
+                  val checkType = allRefs.map(x => x.isInstanceOf[AttributeReference])
+                 System.err.println("REFERENCES of IF is "+ allRefs)
+                 System.err.println("Name is " + checkType)
+                 System.err.println("AGGREGATE FUNCTION IS " + e.aggregateFunction)
+
+                  willNotWorkOnGpu("Aggregate of non distinct functions with multiple distinct " +
+                    "functions is non deterministic for non distinct functions as it is computed " +
+                    "using " +
+                    "First.")
                 }
-              })
-            if (distinctAggs.size > 1) {
-              willNotWorkOnGpu("Aggregate of non distinct functions with multiple distinct " +
-                "functions is non deterministic for non distinct functions as it is computed " +
-                "using First.")
-            }
+              }
+            })
           }
         case "final" => if (hashAggMode.contains(Partial) || hashAggMode.contains(Complete)) {
           // replacing only Final hash aggregates, so a Partial or Complete one should not replace
@@ -678,8 +682,8 @@ case class GpuHashAggregateExec(
     val inputProjectionsDistinct =
       distinctAggExpressions.flatMap(_.aggregateFunction.inputProjection)
 
-    System.err.println("AGGREGATE EXPRESSION " + aggregateExpressions)
-    System.err.println("DISTINCT EXPRESSION " + distinctAggExpressions.size)
+    //System.err.println("AGGREGATE EXPRESSION " + aggregateExpressions)
+   // System.err.println("DISTINCT EXPRESSION " + distinctAggExpressions.size)
     // Pick merge non-distinct for PartialMerge
     val mergeExpressionsNonDistinct =
       nonDistinctAggExpressions
