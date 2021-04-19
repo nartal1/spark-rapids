@@ -28,7 +28,7 @@
 
 set -ex
 
-nvidia-smi
+#nvidia-smi
 
 #Set env variables
 . jenkins/version-def.sh
