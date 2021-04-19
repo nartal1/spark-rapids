@@ -39,7 +39,7 @@ if [ -e ${AUDIT_PLUGIN_LOG}]; then
   rm ${AUDIT_PLUGIN_LOG}
 fi
 
-PRmJECT_VER="0.5.0-SNAPSHOT"
+PROJECT_VER="0.5.0-SNAPSHOT"
 #Get plugin jar
 ARTF_ROOT="$WORKSPACE/jars"
 MVN_GET_CMD="mvn org.apache.maven.plugins:maven-dependency-plugin:2.8:get -B \
