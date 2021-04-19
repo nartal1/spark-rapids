@@ -64,7 +64,7 @@ if [ -f "$lastcommit" ]; then
         git config --global user.email blossom@nvidia.com
         git add ${lastcommit}
         git commit -m "Update latest commit-id for org.apache.spark branch ${basebranch}"
-        git push origin HEAD:$REF
+        #git push origin HEAD:$REF
     else
         echo "No commit update"
     fi
