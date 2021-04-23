@@ -28,7 +28,6 @@
 
 set -ex
 
-#nvidia-smi
 
 #Set env variables
 . jenkins/version-def.sh
@@ -39,7 +38,7 @@ if [ -e ${AUDIT_PLUGIN_LOG}]; then
   rm ${AUDIT_PLUGIN_LOG}
 fi
 
-PROJECT_VER="0.5.0-SNAPSHOT"
+#PROJECT_VER="0.5.0-SNAPSHOT"
 #Get plugin jar
 ARTF_ROOT="$WORKSPACE/jars"
 MVN_GET_CMD="mvn org.apache.maven.plugins:maven-dependency-plugin:2.8:get -B \
@@ -49,14 +48,14 @@ MVN_GET_CMD="mvn org.apache.maven.plugins:maven-dependency-plugin:2.8:get -B \
 rm -rf $ARTF_ROOT && mkdir -p $ARTF_ROOT
 # maven download SNAPSHOT jars: rapids-4-spark, spark3.0
 $MVN_GET_CMD -DremoteRepositories=$PROJECT_REPO \
-    -DgroupId=com.nvidia -DartifactId=rapids-4-spark_$SCALA_BINARY_VER -Dversion=$PROJECT_VER
+    -DgroupId=com.nvidia -DartifactId=rapids-4-spark_$SCALA_BINARY_VER
 
 RAPIDS_PLUGIN_JAR="$ARTF_ROOT/rapids-4-spark_${SCALA_BINARY_VER}-$PROJECT_VER.jar"
 # Use jdeps to find the dependencies of the rapids-4-spark jar
 DEPS=$(jdeps -include "(com\.nvidia\.spark.*|org\.apache\.spark.*)" -v -e org.apache.spark.* $RAPIDS_PLUGIN_JAR)
 
 FOUND=1
-cd ${SPARK_HOME}
+cd ${SPARK_TREE}
 PRIORITIZED_COMMITS=${WORKSPACE}/commits-with-priority.txt
 if [ -e ${PRIORITIZED_COMMITS} ]; then
   rm ${PRIORITIZED_COMMITS}
