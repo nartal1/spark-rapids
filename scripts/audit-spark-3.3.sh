@@ -85,10 +85,14 @@ else
     ## Get all the commits from TOT branch-3.2 to 79a6e00b7621bb
     git checkout $tag
     git log --oneline HEAD...79a6e00b7621bb -- sql/core/src/main sql/catalyst/src/main  > b3.2.log
+    echo "b3.2.log is"
+    cat b3.2.log
 
     ## Get all the commits from TOT master to 79a6e00b7621bb
     git checkout $basebranch
     git log --oneline HEAD...79a6e00b7621bb -- sql/core/src/main sql/catalyst/src/main  > b3.3.log
+    echo "b3.3.log is "
+    cat b3.3.log
 
     ## Below steps filter commit header messages, sorts and saves only uniq commits that needs to be audited in commits.to.audit.3.3 file
     eval "cat b3.2.log | awk '{$1 = "";print $0}' > b3.2.filter.log"
