@@ -95,8 +95,12 @@ else
     cat b3.3.log
 
     ## Below steps filter commit header messages, sorts and saves only uniq commits that needs to be audited in commits.to.audit.3.3 file
-    eval "cat b3.2.log | awk '{$1 = "";print $0}' > b3.2.filter.log"
-    eval "cat b3.3.log | awk '{$1 = "";print $0}' > b3.3.filter.log"
+    cat b3.2.log | awk '{$1 = "";print $0}' > b3.2.filter.log
+    cat b3.3.log | awk '{$1 = "";print $0}' > b3.3.filter.log
+    echo "b3.2. filter.log is"
+    cat b3.2.filter.log
+    echo "b3.3.filter.log"
+    cat b3.3.filter.log
     eval "cat b3.3.filter.log b3.2.filter.log | sort | uniq -c | sort  | awk '/^[[:space:]]*1/{$1 = "";print $0}' > uniqcommits.log"
     eval "cat b3.2.filter.log | sort > b3.2.filter.sorted.log"
     eval "cat b3.3.filter.log | sort > b3.3.filter.sorted.log"
