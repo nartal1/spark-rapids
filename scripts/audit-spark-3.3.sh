@@ -91,23 +91,25 @@ else
     git log --oneline HEAD...79a6e00b7621bb -- sql/core/src/main sql/catalyst/src/main  > b3.3.log
 
     ## Below steps filter commit header messages, sorts and saves only uniq commits that needs to be audited in commits.to.audit.3.3 file
-    cat b3.2.log | awk '{$1 = "";print $0}' > b3.2.filter.log
-    cat b3.3.log | awk '{$1 = "";print $0}' > b3.3.filter.log
-    cat b3.3.filter.log b3.2.filter.log | sort | uniq -c | sort  | awk '/^[[:space:]]*1/{$1 = "";print $0}' > uniqcommits.log
-    cat b3.2.filter.log | sort > b3.2.filter.sorted.log
-    cat b3.3.filter.log | sort > b3.3.filter.sorted.log
-    cat uniqcommits.log | sort > uniqcommits.sorted.log
-    comm -12 b3.2.filter.sorted.log uniqcommits.sorted.log | wc -l
-    comm -12 b3.3.filter.sorted.log uniqcommits.sorted.log > commits.to.audit.3.3
-    sed -i 's/\[/\\[/g' commits.to.audit.3.3
-    sed -i 's/\]/\\]/g' commits.to.audit.3.3
+    eval "cat b3.2.log | awk '{$1 = "";print $0}' > b3.2.filter.log"
+    eval "cat b3.3.log | awk '{$1 = "";print $0}' > b3.3.filter.log"
+    eval "cat b3.3.filter.log b3.2.filter.log | sort | uniq -c | sort  | awk '/^[[:space:]]*1/{$1 = "";print $0}' > uniqcommits.log"
+    eval "cat b3.2.filter.log | sort > b3.2.filter.sorted.log"
+    eval "cat b3.3.filter.log | sort > b3.3.filter.sorted.log"
+    eval "cat uniqcommits.log | sort > uniqcommits.sorted.log"
+    eval "comm -12 b3.2.filter.sorted.log uniqcommits.sorted.log | wc -l"
+    eval "comm -12 b3.3.filter.sorted.log uniqcommits.sorted.log > commits.to.audit.3.3"
+    eval "sed -i 's/\[/\\[/g' commits.to.audit.3.3"
+    eval "sed -i 's/\]/\\]/g' commits.to.audit.3.3"
 
     filename=commits.to.audit.3.3
+    echo "priting audits to commit"
+    eval "cat $filename"
     while read -r line; do
       echo "1"
       git log --grep="$line" --pretty="%h %s" >> ${COMMIT_DIFF_LOG}
     done < $filename
-    git log HEAD -n 1 --pretty="%h" > $lastcommit
+    git log HEAD -n 1 --pretty="%h" #> $lastcommit
 fi
 cd ${ABSOLUTE_PATH}/../ 
 . scripts/prioritize-commits.sh
