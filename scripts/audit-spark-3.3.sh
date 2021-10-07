@@ -133,5 +133,5 @@ else
     done < $filename
     git log HEAD -n 1 --pretty="%h" #> $lastcommit
 fi
-#cd ${ABSOLUTE_PATH}/../ 
-#. scripts/prioritize-commits.sh
+cd ${ABSOLUTE_PATH}/../
+. scripts/prioritize-commits.sh
