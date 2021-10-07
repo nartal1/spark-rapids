@@ -101,12 +101,20 @@ else
     cat b3.3.filter.log b3.2.filter.log | sort | uniq -c | sort  > uniqsort.log
     echo "uniqsort is"
     cat uniqsort.log
+    cat uniqsort.log | awk '{$1=$1;print}' > uniqTrimmed.log
+    echo "uniqTrimmed log"
+    cat uniqTrimmed.log
+    cat uniqTrimmed.log | awk '/^1/{$1 = "";print $0}' > uniqTrimmedCommits_1.log
+    echo uniqTrimmedCommits_1.log
+    cat uniqTrimmedCommits_1.log
+
+
     cat uniqsort.log | awk '/^[[:space:]]*1/{$1 = "";print $0}' > uniqcommits_1.log
     echo "uniqcommits_1.log"
     cat uniqcommits_1.log 
 
     cat b3.3.filter.log b3.2.filter.log | sort | uniq -c | sort | awk '/^[[:space:]]*1/{$1 = "";print $0}' > uniqcommits.log
-    echo"uniqcommits is "
+    echo "uniqcommits is "
     cat uniqcommits.log
     cat b3.2.filter.log | sort > b3.2.filter.sorted.log
     cat b3.3.filter.log | sort > b3.3.filter.sorted.log
@@ -115,10 +123,10 @@ else
     cat uniqcommits.sorted.log
     echo "b3.3.filter.sorted.log"
     cat b3.3.filter.sorted.log
-    eval "comm -12 b3.2.filter.sorted.log uniqcommits.sorted.log | wc -l"
-    eval "comm -12 b3.3.filter.sorted.log uniqcommits.sorted.log > commits.to.audit.3.3"
-    eval "sed -i 's/\[/\\[/g' commits.to.audit.3.3"
-    eval "sed -i 's/\]/\\]/g' commits.to.audit.3.3"
+    comm -12 b3.2.filter.sorted.log uniqcommits.sorted.log | wc -l
+    comm -12 b3.3.filter.sorted.log uniqcommits.sorted.log > commits.to.audit.3.3
+    sed -i 's/\[/\\[/g' commits.to.audit.3.3
+    sed -i 's/\]/\\]/g' commits.to.audit.3.3
 
     filename=commits.to.audit.3.3
     echo "priting audits to commit"
