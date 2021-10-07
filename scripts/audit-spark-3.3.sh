@@ -98,22 +98,18 @@ else
     cat b3.2.log | awk '{$1 = "";print $0}' > b3.2.filter.log
     cat b3.3.log | awk '{$1 = "";print $0}' > b3.3.filter.log
 
-    cat b3.3.filter.log b3.2.filter.log | sort | uniq -c | sort  > uniqsort.log
-    echo "uniqsort is"
-    cat uniqsort.log
-    cat uniqsort.log | awk '{$1=$1;print}' > uniqTrimmed.log
-    echo "uniqTrimmed log"
-    cat uniqTrimmed.log
-    cat uniqTrimmed.log | awk '/^1/{$1 = "";print $0}' > uniqTrimmedCommits_1.log
-    echo uniqTrimmedCommits_1.log
-    cat uniqTrimmedCommits_1.log
+    cat b3.3.filter.log b3.2.filter.log | sort | uniq -c | sort | awk '{$1=$1;print}' > uniqsort.log
+    #echo "uniqsort is"
+    #cat uniqsort.log
+    #cat uniqsort.log | awk '{$1=$1;print}' > uniqTrimmed.log
+    #echo "uniqTrimmed log"
+    #cat uniqTrimmed.log
+    cat uniqsort.log | awk '/^1/{$1 = "";print $0}' > uniqcommits.log
+    #echo uniqTrimmedCommits_1.log
+    #cat uniqTrimmedCommits_1.log
 
 
-    cat uniqsort.log | awk '/^[[:space:]]*1/{$1 = "";print $0}' > uniqcommits_1.log
-    echo "uniqcommits_1.log"
-    cat uniqcommits_1.log 
-
-    cat b3.3.filter.log b3.2.filter.log | sort | uniq -c | sort | awk '/^[[:space:]]*1/{$1 = "";print $0}' > uniqcommits.log
+    #cat b3.3.filter.log b3.2.filter.log | sort | uniq -c | sort | awk '/^[[:space:]]*1/{$1 = "";print $0}' > uniqcommits.log
     echo "uniqcommits is "
     cat uniqcommits.log
     cat b3.2.filter.log | sort > b3.2.filter.sorted.log
