@@ -330,6 +330,10 @@
                                         <java classname="com.nvidia.spark.rapids.SupportedOpsForTools" failonerror="true">
                                             <arg value="${project.basedir}/../tools/src/main/resources/supportedDataSource.csv"/>
                                         </java>
+                                        <java classname="com.nvidia.spark.rapids.SupportedOpsForTools" failonerror="true">
+                                            <arg value="${project.basedir}/../tools/src/main/resources/operatorsScore.csv"/>
+                                            <arg value="mapExecs"/>
+                                        </java>
                                     </ac:then>
                                 </ac:if>
                             </target>

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, NVIDIA CORPORATION.
+ * Copyright (c) 2021-2022, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -96,5 +96,20 @@ class PluginTypeCheckerSuite extends FunSuite with Logging {
     val (score, nsTypes) = checker.scoreReadDataTypes("parquet", testSchema)
     assert(score == 1.0)
     assert(nsTypes.isEmpty)
+  }
+
+  test("supported operator score") {
+    val checker = new PluginTypeChecker
+    TrampolineUtil.withTempDir { outpath =>
+      val header = "CPUExec,Score\n"
+      val supText = (header + "FilterExec,3\n").getBytes(StandardCharsets.UTF_8)
+      val csvSupportedFile = Paths.get(outpath.getAbsolutePath, "testScore.txt")
+      Files.write(csvSupportedFile, supText)
+      checker.setOperatorScore(csvSupportedFile.toString)
+      val res = checker.getOperatorScore
+      assert(res.contains("FilterExec"))
+      assert(!res.contains("ProjectExec"))
+      assert(res("FilterExec") == 32)
+    }
   }
 }

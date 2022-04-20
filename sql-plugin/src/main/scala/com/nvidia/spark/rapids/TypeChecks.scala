@@ -2188,6 +2188,24 @@ object SupportedOpsForTools extends Logging {
     }
   }
 
+  private def execsMappingWithScore(): Unit = {
+    val header = Seq("CPUExec", "Score")
+    println(header.mkString(","))
+    GpuOverrides.execs.values.toSeq.sortBy(_.tag.toString).foreach { rule =>
+      val checks = rule.getChecks
+      if (rule.isVisible && checks.forall(_.shown)) {
+        val execChecks = checks.get.asInstanceOf[ExecChecks]
+        val allData = allSupportedTypes.map { t =>
+          (t, execChecks.support(t))
+        }.toMap
+
+        val cpuName = rule.tag.runtimeClass.getSimpleName
+        val allCols = Seq(cpuName, "2")
+        println(s"${allCols.map(replaceDelimiter(_, ",")).mkString(",")}")
+      }
+    }
+  }
+
   private def outputSupportedExecs(): Unit = {
     // Look at what we have for defaults for some configs because if the configs are off
     // it likely means something isn't completely compatible.
@@ -2263,8 +2281,9 @@ object SupportedOpsForTools extends Logging {
 
   def help(printType: String): Unit = {
     printType match {
-      case a if (a.equals("execs")) => outputSupportedExecs()
+      case a if a.equals("execs") => outputSupportedExecs()
       case expr if (expr.equals("expr")) => outputSupportedExpressions()
+      case score if (score.equals("mapExecs")) => execsMappingWithScore()
       case _ => outputSupportIO()
     }
   }

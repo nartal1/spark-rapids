@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, NVIDIA CORPORATION.
+ * Copyright (c) 2021-2022, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 
 package com.nvidia.spark.rapids.tool.qualification
 
-import scala.collection.mutable.{ArrayBuffer,HashMap}
+import scala.collection.mutable.{ArrayBuffer, HashMap}
 import scala.io.{BufferedSource, Source}
 
 /**
@@ -36,6 +36,7 @@ class PluginTypeChecker {
   private val NA = "NA"
 
   private val DEFAULT_DS_FILE = "supportedDataSource.csv"
+  private val OPERATORS_SCORE_FILE = "operatorsScore.csv"
 
   // map of file format => Map[support category => Seq[Datatypes for that category]]
   // contains the details of formats to which ones have datatypes not supported.
@@ -43,6 +44,8 @@ class PluginTypeChecker {
   // from event logs for write formats.
   // var for testing purposes
   private var (readFormatsAndTypes, writeFormats) = readSupportedTypesForPlugin
+
+  private var supportedOperatorsScore = readOperatorsScore
 
   // for testing purposes only
   def setPluginDataSourceFile(filePath: String): Unit = {
@@ -52,10 +55,49 @@ class PluginTypeChecker {
     writeFormats = writeFormatsTest
   }
 
+  def setOperatorScore(filePath:String): Unit = {
+    val source = Source.fromFile(filePath)
+    supportedOperatorsScore = readOperatorsScore(source)
+  }
+
+  def getOperatorScore(): Map[String, Int] = supportedOperatorsScore
+
+  private def readOperatorsScore: Map[String, Int] = {
+    val source = Source.fromResource(OPERATORS_SCORE_FILE)
+    readOperatorsScore(source)
+  }
+
   private def readSupportedTypesForPlugin: (
       Map[String, Map[String, Seq[String]]], ArrayBuffer[String]) = {
     val source = Source.fromResource(DEFAULT_DS_FILE)
     readSupportedTypesForPlugin(source)
+  }
+
+  private def readOperatorsScore(source: BufferedSource): Map[String, Int] = {
+    val supportedOperatorsScore = HashMap.empty[String, Int]
+    try {
+      val fileContents = source.getLines().toSeq
+      if (fileContents.size < 2) {
+        throw new IllegalStateException("supportedDataSource file appears corrupt," +
+            " must have at least the header and one line")
+      }
+      // first line is header
+      val header = fileContents.head.split(",").map(_.toLowerCase)
+      // the rest of the rows are file formats with type supported info
+      fileContents.tail.foreach { line =>
+        val cols = line.split(",")
+        if (header.size != cols.size) {
+          throw new IllegalStateException("supportedDataSource file appears corrupt," +
+              " header length doesn't match rows length")
+        }
+        val operator = cols(0)
+        val score = cols(1).toInt
+        supportedOperatorsScore.put(operator, score)
+      }
+    } finally {
+      source.close()
+    }
+    supportedOperatorsScore.toMap
   }
 
   // file format should be like this:
