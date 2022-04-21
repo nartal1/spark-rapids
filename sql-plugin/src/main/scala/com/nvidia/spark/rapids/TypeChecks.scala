@@ -2189,27 +2189,30 @@ object SupportedOpsForTools extends Logging {
   }
 
   private def execsMappingWithScore(): Unit = {
-    val header = Seq("CPUExec", "Score")
+    val header = Seq("CPUOperator", "Score")
     println(header.mkString(","))
     GpuOverrides.execs.values.toSeq.sortBy(_.tag.toString).foreach { rule =>
       val checks = rule.getChecks
       if (rule.isVisible && checks.forall(_.shown)) {
-        val execChecks = checks.get.asInstanceOf[ExecChecks]
-        val allData = allSupportedTypes.map { t =>
-          (t, execChecks.support(t))
-        }.toMap
-
         val cpuName = rule.tag.runtimeClass.getSimpleName
         val allCols = Seq(cpuName, "2")
+        println(s"${allCols.map(replaceDelimiter(_, ",")).mkString(",")}")
+      }
+    }
+
+    GpuOverrides.expressions.values.toSeq.sortBy(_.tag.runtimeClass.getSimpleName).foreach { rule =>
+      val checks = rule.getChecks
+      if (rule.isVisible && checks.forall(_.shown)) {
+        val cpuName = rule.tag.runtimeClass.getSimpleName
+        val allCols = Seq(cpuName, "3")
         println(s"${allCols.map(replaceDelimiter(_, ",")).mkString(",")}")
       }
     }
   }
 
   private def outputSupportedExecs(): Unit = {
-    // Look at what we have for defaults for some configs because if the configs are off
+    // TODO Look at what we have for defaults for some configs because if the configs are off
     // it likely means something isn't completely compatible.
-    // TODO ???
     val conf = new RapidsConf(Map.empty[String, String])
     val types = allSupportedTypes.toSeq
     val header = Seq("Exec", "Notes", "Params") ++ types
@@ -2241,7 +2244,7 @@ object SupportedOpsForTools extends Logging {
   }
 
   private def outputSupportedExpressions(): Unit = {
-    // Look at what we have for defaults for some configs because if the configs are off
+    // TODO Look at what we have for defaults for some configs because if the configs are off
     // it likely means something isn't completely compatible.
     val conf = new RapidsConf(Map.empty[String, String])
     val types = allSupportedTypes.toSeq
@@ -2264,14 +2267,11 @@ object SupportedOpsForTools extends Logging {
 
         representative.foreach {
           case (context, data) =>
-            val contextSpan = data.size
-            println("<td rowSpan=\"" + contextSpan + "\">" + s"$context</td>")
-            data.keys.foreach { param =>
-              println(s"<td>$param</td>")
+           data.keys.foreach { param =>
               val supportLevelOps = allSupportedTypes.toSeq.map { t =>
                 allData(t)(context)(param).text
               }
-              val allCols = (staticCols ++ Seq(context.toString) ++ supportLevelOps)
+              val allCols = (staticCols ++ Seq(context.toString) ++ Seq(param) ++ supportLevelOps)
               println(s"${allCols.map(replaceDelimiter(_, ",")).mkString(",")}")
             }
         }
@@ -2282,8 +2282,8 @@ object SupportedOpsForTools extends Logging {
   def help(printType: String): Unit = {
     printType match {
       case a if a.equals("execs") => outputSupportedExecs()
-      case expr if (expr.equals("expr")) => outputSupportedExpressions()
-      case score if (score.equals("mapExecs")) => execsMappingWithScore()
+      case expr if (expr.equals("exprs")) => outputSupportedExpressions()
+      case score if (score.equals("operatorScore")) => execsMappingWithScore()
       case _ => outputSupportIO()
     }
   }

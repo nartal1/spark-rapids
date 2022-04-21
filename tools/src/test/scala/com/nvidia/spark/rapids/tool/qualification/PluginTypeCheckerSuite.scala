@@ -101,7 +101,7 @@ class PluginTypeCheckerSuite extends FunSuite with Logging {
   test("supported operator score") {
     val checker = new PluginTypeChecker
     TrampolineUtil.withTempDir { outpath =>
-      val header = "CPUExec,Score\n"
+      val header = "CPUOperator,Score\n"
       val supText = (header + "FilterExec,3\n").getBytes(StandardCharsets.UTF_8)
       val csvSupportedFile = Paths.get(outpath.getAbsolutePath, "testScore.txt")
       Files.write(csvSupportedFile, supText)

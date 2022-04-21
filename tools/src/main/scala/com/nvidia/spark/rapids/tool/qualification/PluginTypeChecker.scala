@@ -78,16 +78,16 @@ class PluginTypeChecker {
     try {
       val fileContents = source.getLines().toSeq
       if (fileContents.size < 2) {
-        throw new IllegalStateException("supportedDataSource file appears corrupt," +
+        throw new IllegalStateException("operatorsScore file appears corrupt," +
             " must have at least the header and one line")
       }
       // first line is header
       val header = fileContents.head.split(",").map(_.toLowerCase)
-      // the rest of the rows are file formats with type supported info
+      // the rest of the rows are file with type supported info
       fileContents.tail.foreach { line =>
         val cols = line.split(",")
         if (header.size != cols.size) {
-          throw new IllegalStateException("supportedDataSource file appears corrupt," +
+          throw new IllegalStateException("operatorsScore file appears corrupt," +
               " header length doesn't match rows length")
         }
         val operator = cols(0)
@@ -99,6 +99,30 @@ class PluginTypeChecker {
     }
     supportedOperatorsScore.toMap
   }
+
+  private def readSupportedExecs(source:BufferedSource): (Map[String, Map[String, Seq[String]]]) = {
+    val supportedExecs = HashMap.empty[String, Int]
+    try {
+      val fileContents = source.getLines().toSeq
+      if (fileContents.size < 2) {
+        throw new IllegalStateException("supportedExecs file appears corrupt," +
+            " must have at least the header and one line")
+      }
+      // first line is header
+      val header = fileContents.head.split(",").map(_.toLowerCase)
+      // the rest of the rows are execs with type supported info
+      fileContents.tail.foreach { line =>
+        val cols = line.split(",")
+        if (header.size != cols.size) {
+          throw new IllegalStateException("supportedExecs file appears corrupt," +
+              " header length doesn't match rows length")
+        }
+      }
+    } finally {
+      source.close()
+    }
+  }
+
 
   // file format should be like this:
   // Format,Direction,BOOLEAN,BYTE,SHORT,INT,LONG,FLOAT,DOUBLE,DATE,...
