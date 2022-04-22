@@ -332,7 +332,15 @@
                                         </java>
                                         <java classname="com.nvidia.spark.rapids.SupportedOpsForTools" failonerror="true">
                                             <arg value="${project.basedir}/../tools/src/main/resources/operatorsScore.csv"/>
-                                            <arg value="mapExecs"/>
+                                            <arg value="operatorScore"/>
+                                        </java>
+                                        <java classname="com.nvidia.spark.rapids.SupportedOpsForTools" failonerror="true">
+                                            <arg value="${project.basedir}/../tools/src/main/resources/supportedExecs.csv"/>
+                                            <arg value="execs"/>
+                                        </java>
+                                        <java classname="com.nvidia.spark.rapids.SupportedOpsForTools" failonerror="true">
+                                            <arg value="${project.basedir}/../tools/src/main/resources/supportedExprs.csv"/>
+                                            <arg value="exprs"/>
                                         </java>
                                     </ac:then>
                                 </ac:if>

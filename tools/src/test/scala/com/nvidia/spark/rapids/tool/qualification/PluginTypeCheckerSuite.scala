@@ -101,15 +101,31 @@ class PluginTypeCheckerSuite extends FunSuite with Logging {
   test("supported operator score") {
     val checker = new PluginTypeChecker
     TrampolineUtil.withTempDir { outpath =>
-      val header = "CPUExec,Score\n"
+      val header = "CPUOperator,Score\n"
       val supText = (header + "FilterExec,3\n").getBytes(StandardCharsets.UTF_8)
       val csvSupportedFile = Paths.get(outpath.getAbsolutePath, "testScore.txt")
       Files.write(csvSupportedFile, supText)
       checker.setOperatorScore(csvSupportedFile.toString)
-      val res = checker.getOperatorScore
-      assert(res.contains("FilterExec"))
-      assert(!res.contains("ProjectExec"))
-      assert(res("FilterExec") == 32)
+      val operScore = checker.getOperatorScore
+      assert(operScore.contains("FilterExec"))
+      assert(!operScore.contains("ProjectExec"))
+      assert(operScore("FilterExec") == 3)
     }
   }
+
+  test("supported Execs") {
+    val checker = new PluginTypeChecker
+    val result = checker.getSupportedExecs
+    assert(result.contains("ShuffledHashJoinExec"))
+    assert(result("ShuffledHashJoinExec") == "S")
+  }
+
+  test("supported Expressions") {
+    val checker = new PluginTypeChecker
+    val result = checker.getSupportedExprs
+    assert(result.contains("Add"))
+    assert(result("Add") == "S")
+    assert(result.contains("IsNull"))
+  }
+
 }
