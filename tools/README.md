@@ -5,7 +5,7 @@ might be a good fit for those applications.
 
 The Profiling tool generates informations which can be used for debugging and profiling applications.
 Information such as Spark versions, executor informations, properties and so on. This runs on either CPU or
-GPU generated event logs.
+GPU generated event log
 
 Please refer to [Qualification tool documentation](../docs/spark-qualification-tool.md) 
 and [Profiling tool documentation](../docs/spark-profiling-tool.md)
