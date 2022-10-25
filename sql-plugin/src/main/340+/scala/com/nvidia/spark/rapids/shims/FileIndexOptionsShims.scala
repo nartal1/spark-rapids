@@ -16,8 +16,16 @@
 
 package com.nvidia.spark.rapids.shims
 
+import java.io.OutputStream
 import org.apache.spark.sql.execution.datasources.FileIndexOptions
+import org.apache.orc.impl.OutStream
+import org.apache.orc.protobuf.CodedOutputStream
 
 object FileIndexOptionsShims {
   val BASE_PATH_PARAM = FileIndexOptions.BASE_PATH_PARAM
+  // val OUTPUT_STREAM = CodedOutputStream
+
+  def newOutputStream(outstream: OutStream): OutputStream = {
+    CodedOutputStream.newInstance(outstream).asInstanceOf[OutputStream]
+  }
 }

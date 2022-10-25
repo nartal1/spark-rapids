@@ -16,7 +16,7 @@
 
 package com.nvidia.spark.rapids
 
-import java.io.{DataOutputStream, FileNotFoundException, IOException}
+import java.io.{DataOutputStream, FileNotFoundException, IOException, OutputStream}
 import java.net.URI
 import java.nio.ByteBuffer
 import java.nio.channels.{Channels, WritableByteChannel}
@@ -31,11 +31,11 @@ import scala.language.implicitConversions
 import scala.math.max
 
 import ai.rapids.cudf._
-import com.google.protobuf.CodedOutputStream
+// import com.google.protobuf.CodedOutputStream
 import com.nvidia.spark.rapids.GpuMetric._
 import com.nvidia.spark.rapids.RapidsPluginImplicits._
 import com.nvidia.spark.rapids.SchemaUtils._
-import com.nvidia.spark.rapids.shims.{OrcCastingShims, OrcReadingShims, OrcShims, ShimFilePartitionReaderFactory}
+import com.nvidia.spark.rapids.shims.{FileIndexOptionsShims, OrcCastingShims, OrcReadingShims, OrcShims, ShimFilePartitionReaderFactory}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.hive.common.io.DiskRangeList
@@ -43,6 +43,7 @@ import org.apache.orc.{CompressionKind, DataReader, OrcConf, OrcFile, OrcProto, 
 import org.apache.orc.impl._
 import org.apache.orc.impl.RecordReaderImpl.SargApplier
 import org.apache.orc.mapred.OrcInputFormat
+// import org.apache.orc.protobuf.CodedOutputStream
 
 import org.apache.spark.TaskContext
 import org.apache.spark.broadcast.Broadcast
@@ -738,7 +739,7 @@ trait OrcCommonFunctions extends OrcCodecWritingHelper { self: FilePartitionRead
       rawOut: HostMemoryOutputStream,
       footerStartOffset: Long,
       numRows: Long,
-      protoWriter: CodedOutputStream,
+      protoWriter: OutputStream,
       codecStream: OutStream) = {
 
     val startPoint = rawOut.getPos
@@ -1772,7 +1773,7 @@ trait OrcCodecWritingHelper extends Arm {
   def withCodecOutputStream[T](
       ctx: OrcPartitionReaderContext,
       out: HostMemoryOutputStream)
-    (block: (WritableByteChannel, CodedOutputStream, OutStream) => T): T = {
+    (block: (WritableByteChannel, OutputStream, OutStream) => T): T = {
 
     withResource(Channels.newChannel(out)) { outChannel =>
       val outReceiver = new PhysicalWriter.OutputReceiver {
@@ -1791,7 +1792,8 @@ trait OrcCodecWritingHelper extends Arm {
         }
         withResource(OrcShims.newOrcOutStream(
           getClass.getSimpleName, orcBufferSize, codec, outReceiver)) { codecStream =>
-          val protoWriter = CodedOutputStream.newInstance(codecStream)
+          // val protoWriter = CodedOutputStream.newInstance(codecStream)
+          val protoWriter = FileIndexOptionsShims.newOutputStream(codecStream)
           block(outChannel, protoWriter, codecStream)
         }
       } finally {
