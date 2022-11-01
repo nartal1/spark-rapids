@@ -151,16 +151,16 @@ abstract class Spark31XdbShims extends Spark31XdbShimsBase with Logging {
     case _ => e
   }
 
-  override def getExprs: Map[Class[_ <: Expression], ExprRule[_ <: Expression]] = Seq(
+  def get31xdbExprs: Map[Class[_ <: Expression], ExprRule[_ <: Expression]] = Seq(
     GpuOverrides.expr[Cast](
-        "Convert a column of one type of data into another type",
-        new CastChecks(),
-        // 312db supports Ansi mode when casting string to date, this means that an exception
-        // will be thrown when casting an invalid value to date in Ansi mode.
-        // Set `stringToAnsiDate` = true
-        (cast, conf, p, r) => new CastExprMeta[Cast](cast,
-          SparkSession.active.sessionState.conf.ansiEnabled, conf, p, r,
-          doFloatToIntCheck = true, stringToAnsiDate = true)),
+      "Convert a column of one type of data into another type",
+      new CastChecks(),
+      // 312db supports Ansi mode when casting string to date, this means that an exception
+      // will be thrown when casting an invalid value to date in Ansi mode.
+      // Set `stringToAnsiDate` = true
+      (cast, conf, p, r) => new CastExprMeta[Cast](cast,
+        SparkSession.active.sessionState.conf.ansiEnabled, conf, p, r,
+        doFloatToIntCheck = true, stringToAnsiDate = true)),
     GpuOverrides.expr[Average](
       "Average aggregate operator",
       ExprChecks.fullAgg(
@@ -190,6 +190,10 @@ abstract class Spark31XdbShims extends Spark31XdbShimsBase with Logging {
         override def convertToGpu(child: Expression): GpuExpression = GpuAbs(child, false)
       })
   ).map(r => (r.getClassFor.asSubclass(classOf[Expression]), r)).toMap
+
+  override def getExprs: Map[Class[_ <: Expression], ExprRule[_ <: Expression]] = {
+    get31xdbExprs ++ super.getExprs
+  }
 
   override def getExecs: Map[Class[_ <: SparkPlan], ExecRule[_ <: SparkPlan]] = {
     Seq(

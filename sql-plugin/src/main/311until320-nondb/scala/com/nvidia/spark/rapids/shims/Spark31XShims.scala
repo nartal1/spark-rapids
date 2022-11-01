@@ -49,7 +49,7 @@ import org.apache.spark.sql.rapids.execution.python._
 import org.apache.spark.sql.types._
 
 // 31x nondb shims, used by 311cdh and 31x
-abstract class Spark31XShims extends SparkShims with Spark31Xuntil33XShims with Logging {
+abstract class Spark31XShims extends Spark31Xuntil33XShims with Logging {
   override def parquetRebaseReadKey: String =
     SQLConf.LEGACY_PARQUET_REBASE_MODE_IN_READ.key
   override def parquetRebaseWriteKey: String =
@@ -253,13 +253,13 @@ abstract class Spark31XShims extends SparkShims with Spark31Xuntil33XShims with 
     case _ => e
   }
 
-  override def getExprs: Map[Class[_ <: Expression], ExprRule[_ <: Expression]] = Seq(
+  def get31xExprs: Map[Class[_ <: Expression], ExprRule[_ <: Expression]] = Seq(
     GpuOverrides.expr[Cast](
-        "Convert a column of one type of data into another type",
-        new CastChecks(),
-        (cast, conf, p, r) => new CastExprMeta[Cast](cast,
-          SparkSession.active.sessionState.conf.ansiEnabled, conf, p, r,
-          doFloatToIntCheck = true, stringToAnsiDate = false)),
+      "Convert a column of one type of data into another type",
+      new CastChecks(),
+      (cast, conf, p, r) => new CastExprMeta[Cast](cast,
+        SparkSession.active.sessionState.conf.ansiEnabled, conf, p, r,
+        doFloatToIntCheck = true, stringToAnsiDate = false)),
     GpuOverrides.expr[Average](
       "Average aggregate operator",
       ExprChecks.fullAgg(
@@ -289,6 +289,10 @@ abstract class Spark31XShims extends SparkShims with Spark31Xuntil33XShims with 
         override def convertToGpu(child: Expression): GpuExpression = GpuAbs(child, false)
       })
   ).map(r => (r.getClassFor.asSubclass(classOf[Expression]), r)).toMap
+
+  override def getExprs: Map[Class[_ <: Expression], ExprRule[_ <: Expression]] = {
+    get31xExprs ++ super.getExprs
+  }
 
   override def getExecs: Map[Class[_ <: SparkPlan], ExecRule[_ <: SparkPlan]] = {
     Seq(
