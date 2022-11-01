@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.plans.physical.SinglePartition
 import org.apache.spark.sql.execution.{CollectLimitExec, GlobalLimitExec, SparkPlan}
 import org.apache.spark.sql.execution.exchange.ENSURE_REQUIREMENTS
 
-object SparkShimImpl extends Spark331PlusShims {
+object SparkShimImpl extends Spark340PlusShims {
   override def getSparkShimVersion: ShimVersion = ShimLoader.getShimVersion
 
   private val shimExecs: Map[Class[_ <: SparkPlan], ExecRule[_ <: SparkPlan]] = Seq(
@@ -63,5 +63,4 @@ object SparkShimImpl extends Spark331PlusShims {
 
   // AnsiCast is removed from Spark3.4.0
   override def ansiCastRule: ExprRule[_ <: Expression] = null
-
 }
