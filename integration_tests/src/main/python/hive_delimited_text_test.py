@@ -17,7 +17,7 @@ from conftest import get_non_gpu_allowed
 from data_gen import *
 from marks import *
 from pyspark.sql.types import *
-from spark_session import with_cpu_session
+from spark_session import with_cpu_session, is_databricks113_or_later
 
 hive_text_enabled_conf = {"spark.rapids.sql.format.hive.text.enabled": True,
                           "spark.rapids.sql.format.hive.text.read.enabled": True}
@@ -282,6 +282,7 @@ hive_text_unsupported_gens = [
 
 @allow_non_gpu("org.apache.spark.sql.hive.execution.HiveTableScanExec")
 @pytest.mark.parametrize('data_gen', hive_text_unsupported_gens, ids=idfn)
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_hive_text_fallback_for_unsupported_types(spark_tmp_path, data_gen, spark_tmp_table_factory):
     gen = StructGen([('my_field', data_gen)], nullable=False)
     data_path = spark_tmp_path + '/hive_text_table'
@@ -297,6 +298,7 @@ def test_hive_text_fallback_for_unsupported_types(spark_tmp_path, data_gen, spar
 
 @allow_non_gpu("org.apache.spark.sql.hive.execution.HiveTableScanExec")
 @pytest.mark.parametrize('data_gen', [StringGen()], ids=idfn)
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_hive_text_default_disabled(spark_tmp_path, data_gen, spark_tmp_table_factory):
     gen = StructGen([('my_field', data_gen)], nullable=False)
     data_path = spark_tmp_path + '/hive_text_table'

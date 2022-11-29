@@ -15,7 +15,7 @@
 import pytest
 
 from asserts import assert_gpu_and_cpu_writes_are_equal_collect, assert_gpu_fallback_write
-from spark_session import is_before_spark_320, is_spark_cdh
+from spark_session import is_before_spark_320, is_spark_cdh, is_databricks113_or_later
 from datetime import date, datetime, timezone
 from data_gen import *
 from marks import *
@@ -140,6 +140,7 @@ def test_write_sql_save_table(spark_tmp_path, orc_gens, ts_type, orc_impl, spark
 
 @allow_non_gpu('DataWritingCommandExec')
 @pytest.mark.parametrize('codec', ['zlib', 'lzo'])
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_orc_write_compression_fallback(spark_tmp_path, codec, spark_tmp_table_factory):
     gen = TimestampGen()
     data_path = spark_tmp_path + '/PARQUET_DATA'
@@ -153,6 +154,7 @@ def test_orc_write_compression_fallback(spark_tmp_path, codec, spark_tmp_table_f
 
 @ignore_order
 @allow_non_gpu('DataWritingCommandExec')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_buckets_write_fallback(spark_tmp_path, spark_tmp_table_factory):
     data_path = spark_tmp_path + '/ORC_DATA'
     assert_gpu_fallback_write(

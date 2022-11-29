@@ -18,7 +18,7 @@ from data_gen import *
 from datetime import date, datetime, timezone
 from marks import ignore_order, incompat, allow_non_gpu
 from pyspark.sql.types import *
-from spark_session import with_cpu_session, with_spark_session, is_before_spark_330
+from spark_session import with_cpu_session, with_spark_session, is_before_spark_330, is_databricks113_or_later
 import pyspark.sql.functions as f
 
 # We only support literal intervals for TimeSub
@@ -42,6 +42,7 @@ def test_timeadd(data_gen):
             .selectExpr("a + (interval {} days {} seconds)".format(days, seconds)))
 
 @pytest.mark.skipif(is_before_spark_330(), reason='DayTimeInterval is not supported before Pyspark 3.3.0')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_timeadd_daytime_column():
     gen_list = [
         # timestamp column max year is 1000
@@ -224,6 +225,7 @@ def test_from_utc_timestamp(data_gen, time_zone):
 @allow_non_gpu('ProjectExec, FromUTCTimestamp')
 @pytest.mark.parametrize('time_zone', ["PST", "MST", "EST", "VST", "NST", "AST"], ids=idfn)
 @pytest.mark.parametrize('data_gen', [timestamp_gen], ids=idfn)
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_from_utc_timestamp_fallback(data_gen, time_zone):
     assert_gpu_fallback_collect(
         lambda spark : unary_op_df(spark, data_gen).select(f.from_utc_timestamp(f.col('a'), time_zone)),
@@ -367,6 +369,7 @@ unsupported_date_formats = ['F']
 @pytest.mark.parametrize('date_format', unsupported_date_formats, ids=idfn)
 @pytest.mark.parametrize('data_gen', date_n_time_gens, ids=idfn)
 @allow_non_gpu('ProjectExec,Alias,DateFormatClass,Literal,Cast')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_date_format_f(data_gen, date_format):
     assert_gpu_fallback_collect(
         lambda spark : unary_op_df(spark, data_gen).selectExpr("date_format(a, '{}')".format(date_format)), 'ProjectExec')
@@ -374,6 +377,7 @@ def test_date_format_f(data_gen, date_format):
 @pytest.mark.parametrize('date_format', unsupported_date_formats, ids=idfn)
 @pytest.mark.parametrize('data_gen', date_n_time_gens, ids=idfn)
 @allow_non_gpu('ProjectExec,Alias,DateFormatClass,Literal,Cast')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_date_format_f_incompat(data_gen, date_format):
     # note that we can't support it even with incompatibleDateFormats enabled
     conf = {"spark.rapids.sql.incompatibleDateFormats.enabled": "true"}
@@ -384,6 +388,7 @@ maybe_supported_date_formats = ['dd-MM-yyyy', 'yyyy-MM-dd HH:mm:ss.SSS', 'yyyy-M
 @pytest.mark.parametrize('date_format', maybe_supported_date_formats, ids=idfn)
 @pytest.mark.parametrize('data_gen', date_n_time_gens, ids=idfn)
 @allow_non_gpu('ProjectExec,Alias,DateFormatClass,Literal,Cast')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_date_format_maybe(data_gen, date_format):
     assert_gpu_fallback_collect(
         lambda spark : unary_op_df(spark, data_gen).selectExpr("date_format(a, '{}')".format(date_format)),

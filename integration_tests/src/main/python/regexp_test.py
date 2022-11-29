@@ -21,7 +21,7 @@ from asserts import assert_gpu_and_cpu_are_equal_collect, assert_gpu_fallback_co
 from data_gen import *
 from marks import *
 from pyspark.sql.types import *
-from spark_session import is_before_spark_320, is_jvm_charset_utf8
+from spark_session import is_before_spark_320, is_jvm_charset_utf8, is_databricks113_or_later
 
 if not is_jvm_charset_utf8():
     pytestmark = [pytest.mark.regexp, pytest.mark.skip(reason=str("Current locale doesn't support UTF-8, regexp support is disabled"))]
@@ -171,6 +171,7 @@ def test_split_optimized_no_re_combined():
 
 # See https://github.com/NVIDIA/spark-rapids/issues/6958 for issue with zero-width match
 @allow_non_gpu('ProjectExec', 'StringSplit')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_split_unsupported_fallback():
     data_gen = mk_str_gen('([bf]o{0,2}:){1,7}') \
         .with_special_case('boo:and:foo')
@@ -207,6 +208,7 @@ def test_split_regexp_disabled_no_fallback():
     )
 
 @allow_non_gpu('ProjectExec', 'StringSplit')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_split_regexp_disabled_fallback():
     conf = { 'spark.rapids.sql.regexp.enabled': 'false' }
     data_gen = mk_str_gen('([bf]o{0,2}:){1,7}') \
@@ -264,6 +266,7 @@ def test_re_replace_repetition():
 
 
 @allow_non_gpu('ProjectExec', 'RegExpReplace')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_re_replace_issue_5492():
     # https://github.com/NVIDIA/spark-rapids/issues/5492
     gen = mk_str_gen('.{0,5}TEST[\ud720 A]{0,5}')
@@ -676,6 +679,7 @@ def test_rlike_null_pattern():
                 'a rlike NULL'))
 
 @allow_non_gpu('ProjectExec', 'RLike')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_rlike_fallback_empty_group():
     gen = mk_str_gen('[abcd]{1,3}')
     assert_gpu_fallback_collect(
@@ -714,6 +718,7 @@ def test_rlike_missing_escape():
         conf=_regexp_conf)
 
 @allow_non_gpu('ProjectExec', 'RLike')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_rlike_fallback_possessive_quantifier():
     gen = mk_str_gen('(\u20ac|\\w){0,3}a[|b*.$\r\n]{0,2}c\\w{0,3}')
     assert_gpu_fallback_collect(
@@ -806,6 +811,7 @@ def test_regexp_split_unicode_support():
             conf=_regexp_conf)
 
 @allow_non_gpu('ProjectExec', 'RLike')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_regexp_memory_fallback():
     gen = StringGen('test')
     assert_gpu_fallback_collect(
