@@ -19,7 +19,7 @@ from datetime import date, datetime, timezone
 from data_gen import *
 from marks import *
 from pyspark.sql.types import *
-from spark_session import with_cpu_session, with_gpu_session, is_before_spark_330, is_before_spark_320
+from spark_session import with_cpu_session, with_gpu_session, is_before_spark_330, is_before_spark_320, is_databricks113_or_later
 import pyspark.sql.functions as f
 import pyspark.sql.utils
 import random
@@ -272,6 +272,7 @@ def test_ts_write_twice_fails_exception(spark_tmp_path, spark_tmp_table_factory)
 @allow_non_gpu('DataWritingCommandExec')
 @pytest.mark.parametrize('ts_write', parquet_ts_write_options)
 @pytest.mark.parametrize('ts_rebase', ['LEGACY'])
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_parquet_write_legacy_fallback(spark_tmp_path, ts_write, ts_rebase, spark_tmp_table_factory):
     gen = TimestampGen(start=datetime(1590, 1, 1, tzinfo=timezone.utc))
     data_path = spark_tmp_path + '/PARQUET_DATA'
@@ -289,6 +290,7 @@ def test_parquet_write_legacy_fallback(spark_tmp_path, ts_write, ts_rebase, spar
 @pytest.mark.parametrize('write_options', [{"parquet.encryption.footer.key": "k1"},
                                            {"parquet.encryption.column.keys": "k2:a"},
                                            {"parquet.encryption.footer.key": "k1", "parquet.encryption.column.keys": "k2:a"}])
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_parquet_write_encryption_option_fallback(spark_tmp_path, spark_tmp_table_factory, write_options):
     def write_func(spark, path):
         writer = unary_op_df(spark, gen).coalesce(1).write
@@ -307,6 +309,7 @@ def test_parquet_write_encryption_option_fallback(spark_tmp_path, spark_tmp_tabl
 @pytest.mark.parametrize("write_options", [{"parquet.encryption.footer.key": "k1"},
                                            {"parquet.encryption.column.keys": "k2:a"},
                                            {"parquet.encryption.footer.key": "k1", "parquet.encryption.column.keys": "k2:a"}])
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_parquet_write_encryption_runtimeconfig_fallback(spark_tmp_path, write_options):
     gen = IntegerGen()
     data_path = spark_tmp_path + '/PARQUET_DATA'
@@ -321,6 +324,7 @@ def test_parquet_write_encryption_runtimeconfig_fallback(spark_tmp_path, write_o
 @pytest.mark.parametrize("write_options", [{"parquet.encryption.footer.key": "k1"},
                                            {"parquet.encryption.column.keys": "k2:a"},
                                            {"parquet.encryption.footer.key": "k1", "parquet.encryption.column.keys": "k2:a"}])
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_parquet_write_encryption_hadoopconfig_fallback(spark_tmp_path, write_options):
     gen = IntegerGen()
     data_path = spark_tmp_path + '/PARQUET_DATA'
@@ -344,6 +348,7 @@ def test_parquet_write_encryption_hadoopconfig_fallback(spark_tmp_path, write_op
 # note that others should fail as well but requires you to load the libraries for them
 # 'lzo', 'brotli', 'lz4', 'zstd' should all fallback
 @pytest.mark.parametrize('codec', ['gzip'])
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_parquet_write_compression_fallback(spark_tmp_path, codec, spark_tmp_table_factory):
     gen = IntegerGen()
     data_path = spark_tmp_path + '/PARQUET_DATA'
@@ -356,6 +361,7 @@ def test_parquet_write_compression_fallback(spark_tmp_path, codec, spark_tmp_tab
             conf=all_confs)
 
 @allow_non_gpu('DataWritingCommandExec')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_parquet_writeLegacyFormat_fallback(spark_tmp_path, spark_tmp_table_factory):
     gen = IntegerGen()
     data_path = spark_tmp_path + '/PARQUET_DATA'
@@ -369,6 +375,7 @@ def test_parquet_writeLegacyFormat_fallback(spark_tmp_path, spark_tmp_table_fact
 
 @ignore_order
 @allow_non_gpu('DataWritingCommandExec')
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_buckets_write_fallback(spark_tmp_path, spark_tmp_table_factory):
     data_path = spark_tmp_path + '/PARQUET_DATA'
     assert_gpu_fallback_write(

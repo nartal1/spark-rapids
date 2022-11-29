@@ -19,7 +19,7 @@ from data_gen import *
 from marks import allow_non_gpu
 from pyspark.sql.types import *
 import pyspark.sql.functions as f
-from spark_session import is_before_spark_340
+from spark_session import is_before_spark_340, is_databricks113_or_later
 
 # Many Spark versions have issues sorting decimals.
 # https://issues.apache.org/jira/browse/SPARK-40089
@@ -36,6 +36,7 @@ orderable_not_null_gen = [ByteGen(nullable=False), ShortGen(nullable=False), Int
 @allow_non_gpu('SortExec', 'ShuffleExchangeExec', 'RangePartitioning', 'SortOrder')
 @pytest.mark.parametrize('data_gen', [StringGen(nullable=False)], ids=idfn)
 @pytest.mark.parametrize('order', [f.col('a').cast(BinaryType())], ids=idfn)
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_sort_binary_fallback(data_gen, order):
     assert_gpu_fallback_collect(
             lambda spark : unary_op_df(spark, data_gen).orderBy(order),
@@ -97,6 +98,7 @@ def test_single_nested_orderby_plain(data_gen, order, shuffle_parts, stable_sort
     pytest.param(f.col('a').asc_nulls_last()),
     pytest.param(f.col('a').desc_nulls_first()),
 ], ids=idfn)
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_single_nested_orderby_fallback_for_nullorder(data_gen, order):
     assert_gpu_fallback_collect(
             lambda spark : unary_op_df(spark, data_gen).orderBy(order),
@@ -132,6 +134,7 @@ def test_single_nested_orderby_with_limit(data_gen, order):
     pytest.param(f.col('a').desc(), ArrayGen(string_gen)),
     pytest.param(f.col('a').desc_nulls_first(), ArrayGen(string_gen))
 ], ids=idfn)
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_single_nested_orderby_with_limit_fallback(data_gen, order):
     assert_gpu_fallback_collect(
         lambda spark : unary_op_df(spark, data_gen).orderBy(order).limit(100),
@@ -209,6 +212,7 @@ def test_orderby_with_processing_and_limit(data_gen):
 
 # We are not trying all possibilities, just doing a few with numbers so the query works.
 @pytest.mark.parametrize('data_gen', [StructGen([('child0', long_gen)])], ids=idfn)
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_single_nested_orderby_with_processing_and_limit(data_gen):
     assert_gpu_and_cpu_are_equal_collect(
         # avoid ambiguity in the order by statement for floating point by including a as a backup ordering column

@@ -17,6 +17,7 @@ from pyspark.sql.types import *
 from asserts import assert_gpu_fallback_collect
 from data_gen import *
 from marks import ignore_order
+from spark_session import is_databricks113_or_later
 
 # copied from sort_test and added explainOnly mode
 _explain_mode_conf = {'spark.rapids.sql.mode': 'explainOnly',
@@ -41,6 +42,7 @@ all_gen = [StringGen(), ByteGen()]
 @ignore_order(local=True)
 @pytest.mark.parametrize('data_gen', all_gen, ids=idfn)
 @pytest.mark.parametrize('join_type', all_join_types, ids=idfn)
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_explain_only_sortmerge_join(data_gen, join_type):
     def do_join(spark):
         left, right = create_df(spark, data_gen, 500, 500)

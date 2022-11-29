@@ -16,7 +16,7 @@ import pytest
 
 from asserts import assert_gpu_and_cpu_are_equal_collect, assert_gpu_and_cpu_are_equal_sql, assert_gpu_and_cpu_error, assert_gpu_fallback_collect, assert_py4j_exception
 from data_gen import *
-from spark_session import is_before_spark_320, is_before_spark_330, is_databricks91_or_later, with_gpu_session
+from spark_session import is_before_spark_320, is_before_spark_330, is_databricks91_or_later, with_gpu_session, is_databricks113_or_later
 from marks import allow_non_gpu, approximate_float
 from pyspark.sql.types import *
 from spark_init_internal import spark_version
@@ -146,6 +146,7 @@ def test_cast_string_ts_valid_format(data_gen):
 
 @allow_non_gpu('ProjectExec', 'Cast', 'Alias')
 @pytest.mark.skipif(is_before_spark_320(), reason="Only in Spark 3.2.0+ do we have issues with extended years")
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_cast_string_date_fallback():
     assert_gpu_fallback_collect(
             # Cast back to String because this goes beyond what python can support for years
@@ -154,6 +155,7 @@ def test_cast_string_date_fallback():
 
 @allow_non_gpu('ProjectExec', 'Cast', 'Alias')
 @pytest.mark.skipif(is_before_spark_320(), reason="Only in Spark 3.2.0+ do we have issues with extended years")
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_cast_string_timestamp_fallback():
     assert_gpu_fallback_collect(
             # Cast back to String because this goes beyond what python can support for years

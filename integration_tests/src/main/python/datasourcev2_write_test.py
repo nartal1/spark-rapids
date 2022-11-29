@@ -17,12 +17,13 @@ from asserts import assert_gpu_fallback_collect
 from data_gen import *
 from marks import *
 from pyspark.sql.types import *
-from spark_session import is_hive_available, is_spark_330_or_later, with_cpu_session
+from spark_session import is_hive_available, is_spark_330_or_later, with_cpu_session, is_databricks113_or_later
 
 @ignore_order
 @allow_non_gpu('DataWritingCommandExec')
 @pytest.mark.skipif(not (is_hive_available() and is_spark_330_or_later()), reason="Must have Hive on Spark 3.3+")
 @pytest.mark.parametrize('fileFormat', ['parquet', 'orc'])
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_write_hive_bucketed_table_fallback(spark_tmp_table_factory, fileFormat):
     """
     fallback because GPU does not support Hive hash partition

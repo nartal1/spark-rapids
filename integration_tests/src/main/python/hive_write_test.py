@@ -18,7 +18,7 @@ from asserts import assert_gpu_and_cpu_sql_writes_are_equal_collect, assert_gpu_
 from data_gen import *
 from datetime import date, datetime, timezone
 from marks import *
-from spark_session import is_hive_available, is_spark_330_or_later, with_cpu_session
+from spark_session import is_hive_available, is_spark_330_or_later, with_cpu_session, is_databricks113_or_later
 
 # Using timestamps from 1970 to work around a cudf ORC bug
 # https://github.com/NVIDIA/spark-rapids/issues/140.
@@ -89,6 +89,7 @@ def test_optimized_hive_ctas_basic(gens, storage, spark_tmp_table_factory):
     ("PARQUET", {"spark.sql.parquet.compression.codec": "gzip"}),
     ("PARQUET", {"spark.sql.parquet.writeLegacyFormat": "true"}),
     ("ORC", {"spark.sql.orc.compression.codec": "zlib"})], ids=idfn)
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_optimized_hive_ctas_configs_fallback(gens, storage_with_confs, spark_tmp_table_factory):
     data_table = spark_tmp_table_factory.get()
     gen_list = [('c' + str(i), gen) for i, gen in enumerate(gens)]
@@ -106,6 +107,7 @@ def test_optimized_hive_ctas_configs_fallback(gens, storage_with_confs, spark_tm
     ("PARQUET", {"parquet.encryption.footer.key": "k1",
                  "parquet.encryption.column.keys": "k2:a"}),
     ("ORC", {"orc.compress": "zlib"})], ids=idfn)
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_optimized_hive_ctas_options_fallback(gens, storage_with_opts, spark_tmp_table_factory):
     data_table = spark_tmp_table_factory.get()
     gen_list = [('c' + str(i), gen) for i, gen in enumerate(gens)]
@@ -122,6 +124,7 @@ def test_optimized_hive_ctas_options_fallback(gens, storage_with_opts, spark_tmp
                      reason="Requires Hive and Spark 3.3+ to write bucketed Hive tables")
 @pytest.mark.parametrize("gens", [_basic_gens], ids=idfn)
 @pytest.mark.parametrize("storage", ["PARQUET", "ORC"], ids=idfn)
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_optimized_hive_bucketed_fallback(gens, storage, spark_tmp_table_factory):
     in_table = spark_tmp_table_factory.get()
     with_cpu_session(lambda spark: three_col_df(spark, int_gen, int_gen, int_gen).createOrReplaceTempView(in_table))

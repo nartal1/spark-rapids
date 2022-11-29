@@ -19,7 +19,7 @@ from data_gen import *
 from conftest import is_databricks_runtime
 from marks import approximate_float, allow_non_gpu, ignore_order
 
-from spark_session import with_cpu_session, with_gpu_session, is_before_spark_330, is_spark_330_or_later
+from spark_session import with_cpu_session, with_gpu_session, is_before_spark_330, is_spark_330_or_later, is_databricks113_or_later
 
 json_supported_gens = [
     # Spark does not escape '\r' or '\n' even though it uses it to mark end of record
@@ -248,6 +248,7 @@ def test_basic_json_read(std_input_path, filename, schema, read_func, allow_non_
     'CORRECTED',
     'EXCEPTION'
 ])
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_json_read_valid_dates(std_input_path, filename, schema, read_func, ansi_enabled, time_parser_policy, spark_tmp_table_factory):
     updated_conf = copy_and_update(_enable_all_types_conf,
                                    {'spark.sql.ansi.enabled': ansi_enabled,
@@ -273,6 +274,7 @@ def test_json_read_valid_dates(std_input_path, filename, schema, read_func, ansi
     'CORRECTED',
     'EXCEPTION'
 ])
+@pytest.mark.xfail(condition=is_databricks113_or_later(), reason='https://github.com/NVIDIA/spark-rapids/issues/7184')
 def test_json_read_invalid_dates(std_input_path, filename, schema, read_func, ansi_enabled, time_parser_policy, spark_tmp_table_factory):
     updated_conf = copy_and_update(_enable_all_types_conf,
                                    {'spark.sql.ansi.enabled': ansi_enabled,
