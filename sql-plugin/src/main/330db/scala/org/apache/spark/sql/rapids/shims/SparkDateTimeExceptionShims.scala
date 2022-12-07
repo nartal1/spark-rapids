@@ -14,10 +14,22 @@
  * limitations under the License.
  */
 
-package com.nvidia.spark.rapids.shims
+package org.apache.spark.sql.rapids.shims
 
-import com.nvidia.spark.rapids._
+import org.apache.spark.{QueryContext, SparkDateTimeException}
 
-object SparkShimImpl extends Spark331PlusShims with Spark320until340Shims {
-  override def getSparkShimVersion: ShimVersion = ShimLoader.getShimVersion
+object SparkDateTimeExceptionShims {
+
+  def newSparkDateTimeException(
+      errorClass: String,
+      messageParameters: Map[String, String],
+      context: Array[QueryContext],
+      summary: String): SparkDateTimeException = {
+    new SparkDateTimeException(
+      errorClass,
+      None,
+      Array.empty,
+      context,
+      summary)
+  }
 }
