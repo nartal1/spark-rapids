@@ -221,6 +221,7 @@ else
     fi
 
     export PYSP_TEST_spark_driver_extraJavaOptions="-ea -Duser.timezone=UTC $COVERAGE_SUBMIT_FLAGS"
+    #export PYSP_TEST_spark_driver_extraJavaOptions="-ea -Duser.timezone=UTC -agentlib:jdwp=transport=dt_socket,server=n,suspend=n,address=5007"
     export PYSP_TEST_spark_executor_extraJavaOptions='-ea -Duser.timezone=UTC'
     export PYSP_TEST_spark_ui_showConsoleProgress='false'
     export PYSP_TEST_spark_sql_session_timeZone='UTC'
