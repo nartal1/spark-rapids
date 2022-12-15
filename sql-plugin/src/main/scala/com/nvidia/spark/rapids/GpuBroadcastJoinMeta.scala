@@ -15,8 +15,12 @@
  */
 package com.nvidia.spark.rapids
 
+//import com.nvidia.spark.rapids.GpuSinglePartitioning
+
+import org.apache.spark.rapids.shims.GpuShuffleExchangeExec
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.adaptive.BroadcastQueryStageExec
+import org.apache.spark.sql.execution.exchange.EXECUTOR_BROADCAST
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.rapids.execution.GpuBroadcastExchangeExec
 
@@ -46,6 +50,7 @@ abstract class GpuBroadcastJoinMeta[INPUT <: SparkPlan](plan: INPUT,
                   .child.isInstanceOf[GpuBroadcastExchangeExec]
       case reused: ReusedExchangeExec => reused.child.isInstanceOf[GpuBroadcastExchangeExec]
       case _: GpuBroadcastExchangeExec => true
+      case GpuShuffleExchangeExec(GpuSinglePartitioning, _, EXECUTOR_BROADCAST) => true
       case _ => false
     }
     if (!buildSideOnGpu) {
