@@ -3879,6 +3879,14 @@ object GpuOverrides extends Logging {
             "Round-robin partitioning is not supported if " +
               s"${SQLConf.SORT_BEFORE_REPARTITION.key} is true"),
         TypeSig.all),
+      // (shuffle, conf, p, r) => { if (shuffle.origin == EXECUTOR_BROADCAST) {
+      //   // new GpuBroadcastMeta(shuffle, conf, p, r)
+      //   override def convertToGpu(): GpuExec = {
+      //     GpuBroadcastExchangeExec(exchange.mode, childPlans.head.convertIfNeeded())
+      //   }
+      // } else {
+      //   new GpuShuffleMeta(shuffle, conf, p, r)
+      // }}),
       (shuffle, conf, p, r) => new GpuShuffleMeta(shuffle, conf, p, r)),
     exec[UnionExec](
       "The backend for the union operator",
@@ -3902,37 +3910,37 @@ object GpuOverrides extends Logging {
       "Implementation of join using broadcast data",
       JoinTypeChecks.equiJoinExecChecks,
       (join, conf, p, r) => new GpuBroadcastHashJoinMeta(join, conf, p, r)),
-    exec[BroadcastNestedLoopJoinExec](
-      "Implementation of join using brute force. Full outer joins and joins where the " +
-          "broadcast side matches the join side (e.g.: LeftOuter with left broadcast) are not " +
-          "supported",
-      JoinTypeChecks.nonEquiJoinChecks,
-      (join, conf, p, r) => new GpuBroadcastNestedLoopJoinMeta(join, conf, p, r)),
-    exec[CartesianProductExec](
-      "Implementation of join using brute force",
-      ExecChecks((TypeSig.commonCudfTypes + TypeSig.NULL + TypeSig.DECIMAL_128 + TypeSig.BINARY +
-          TypeSig.ARRAY + TypeSig.MAP + TypeSig.STRUCT)
-          .nested(TypeSig.commonCudfTypes + TypeSig.NULL + TypeSig.DECIMAL_128 + TypeSig.BINARY +
-              TypeSig.ARRAY + TypeSig.MAP + TypeSig.STRUCT),
-        TypeSig.all),
-      (join, conf, p, r) => new SparkPlanMeta[CartesianProductExec](join, conf, p, r) {
-        val condition: Option[BaseExprMeta[_]] =
-          join.condition.map(GpuOverrides.wrapExpr(_, conf, Some(this)))
+    // exec[BroadcastNestedLoopJoinExec](
+    //   "Implementation of join using brute force. Full outer joins and joins where the " +
+    //       "broadcast side matches the join side (e.g.: LeftOuter with left broadcast) are not " +
+    //       "supported",
+    //   JoinTypeChecks.nonEquiJoinChecks,
+    //   (join, conf, p, r) => new GpuBroadcastNestedLoopJoinMeta(join, conf, p, r)),
+    // exec[CartesianProductExec](
+    //   "Implementation of join using brute force",
+    //   ExecChecks((TypeSig.commonCudfTypes + TypeSig.NULL + TypeSig.DECIMAL_128 + TypeSig.BINARY +
+    //       TypeSig.ARRAY + TypeSig.MAP + TypeSig.STRUCT)
+    //       .nested(TypeSig.commonCudfTypes + TypeSig.NULL + TypeSig.DECIMAL_128 + TypeSig.BINARY +
+    //           TypeSig.ARRAY + TypeSig.MAP + TypeSig.STRUCT),
+    //     TypeSig.all),
+    //   (join, conf, p, r) => new SparkPlanMeta[CartesianProductExec](join, conf, p, r) {
+    //     val condition: Option[BaseExprMeta[_]] =
+    //       join.condition.map(GpuOverrides.wrapExpr(_, conf, Some(this)))
 
-        override val childExprs: Seq[BaseExprMeta[_]] = condition.toSeq
+    //     override val childExprs: Seq[BaseExprMeta[_]] = condition.toSeq
 
-        override def convertToGpu(): GpuExec = {
-          val Seq(left, right) = childPlans.map(_.convertIfNeeded())
-          val joinExec = GpuCartesianProductExec(
-            left,
-            right,
-            None,
-            conf.gpuTargetBatchSizeBytes)
-          // The GPU does not yet support conditional joins, so conditions are implemented
-          // as a filter after the join when possible.
-          condition.map(c => GpuFilterExec(c.convertToGpu(), joinExec)).getOrElse(joinExec)
-        }
-      }),
+    //     override def convertToGpu(): GpuExec = {
+    //       val Seq(left, right) = childPlans.map(_.convertIfNeeded())
+    //       val joinExec = GpuCartesianProductExec(
+    //         left,
+    //         right,
+    //         None,
+    //         conf.gpuTargetBatchSizeBytes)
+    //       // The GPU does not yet support conditional joins, so conditions are implemented
+    //       // as a filter after the join when possible.
+    //       condition.map(c => GpuFilterExec(c.convertToGpu(), joinExec)).getOrElse(joinExec)
+    //     }
+    //   }),
     exec[HashAggregateExec](
       "The backend for hash based aggregations",
       ExecChecks(

@@ -29,10 +29,11 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.serializer.Serializer
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, SortOrder}
-import org.apache.spark.sql.catalyst.plans.physical.RoundRobinPartitioning
+import org.apache.spark.sql.catalyst.plans.physical.{BroadcastMode, RoundRobinPartitioning}//, BroadcastMode}
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
 import org.apache.spark.sql.execution.SparkPlan
-import org.apache.spark.sql.execution.exchange.{Exchange, ShuffleExchangeExec}
+import org.apache.spark.sql.execution.exchange.{Exchange, ShuffleExchangeExec, EXECUTOR_BROADCAST}
+import org.apache.spark.sql.execution.joins.HashedRelationBroadcastMode
 import org.apache.spark.sql.execution.metric._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.rapids.GpuShuffleDependency
@@ -108,11 +109,15 @@ class GpuShuffleMeta(
   }
 
   override def convertToGpu(): GpuExec =
+  if (shuffle.origin == EXECUTOR_BROADCAST) {
+   GpuBroadcastExchangeExec(BroadcastMode.HashedRelationBroadcastMode, childPlans.head.convertIfNeeded)
+  } else {
     GpuShuffleExchangeExec(
       childParts.head.convertToGpu(),
       childPlans.head.convertIfNeeded(),
       shuffle.shuffleOrigin
     )(shuffle.outputPartitioning)
+  }
 }
 
 object GpuShuffleMeta {
