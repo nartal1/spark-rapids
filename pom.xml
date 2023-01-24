@@ -99,8 +99,7 @@
                 <module>aggregator</module>
             </modules>
         </profile>
-        <profile>
-            <!-- Note Databricks requires 2 properties -Ddatabricks and -Dbuildver=312db -->
+        <!-- <profile>
             <id>release312db</id>
             <activation>
                 <property>
@@ -110,15 +109,9 @@
             </activation>
             <properties>
                 <buildver>312db</buildver>
-                <!-- Downgrade scala plugin version due to: https://github.com/sbt/sbt/issues/4305 -->
+
                 <scala.plugin.version>3.4.4</scala.plugin.version>
                 <spark.version.classifier>spark312db</spark.version.classifier>
-                <!--
-                     Note that we are using the Spark version for all of the Databricks dependencies as well.
-                     The jenkins/databricks/build.sh script handles installing the jars as maven artifacts.
-                     This is to make it easier and not have to change version numbers for each individual dependency
-                     and deal with differences between Databricks versions
-                -->
                 <spark.version>${spark312db.version}</spark.version>
                 <spark.test.version>${spark312db.version}</spark.test.version>
                 <hadoop.client.version>2.7.4</hadoop.client.version>
@@ -138,7 +131,7 @@
                 <module>udf-compiler</module>
                 <module>aggregator</module>
             </modules>
-        </profile>
+        </profile> -->
         <profile>
             <id>release312</id>
             <activation>

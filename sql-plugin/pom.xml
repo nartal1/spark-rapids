@@ -665,9 +665,8 @@
                                 </dirset>
                             </pathconvert>
 
-                            <pathconvert property="spark312db.sources" pathsep=",">
+                            <!-- <pathconvert property="spark312db.sources" pathsep=",">
                                 <dirset dir="${project.basedir}/src/main">
-                                    <!-- inherit 311+ except nondb -->
                                     <patternset refid="spark311+.pattern"/>
                                     <exclude name="pre320-treenode/*"/>
                                     <exclude name="*nondb*/*"/>
@@ -678,7 +677,7 @@
 
                                     <include name="312db/*"/>
                                 </dirset>
-                            </pathconvert>
+                            </pathconvert> -->
                             <pathconvert property="spark321db.sources" pathsep=",">
                                 <dirset dir="${project.basedir}/src/main">
                                     <patternset id="spark321db+.pattern">
