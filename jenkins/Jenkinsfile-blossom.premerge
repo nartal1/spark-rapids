@@ -36,7 +36,7 @@ def IMAGE_PREMERGE // temp image for premerge test
 def IMAGE_DB = pod.getCPUYAML("${common.ARTIFACTORY_NAME}/sw-spark-docker/spark:rapids-databricks")
 def PREMERGE_TAG
 def skipped = false
-def db_build = false
+def db_build = true
 def sourcePattern = 'shuffle-plugin/src/main/scala/,udf-compiler/src/main/scala/,' +
     'sql-plugin/src/main/java/,sql-plugin/src/main/scala/'
 
