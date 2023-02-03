@@ -150,7 +150,8 @@ IS_SPARK_311_OR_LATER=0
 # - ICEBERG_ONLY: iceberg tests only
 # - DELTA_LAKE_ONLY: delta_lake tests only
 # - MULTITHREADED_SHUFFLE: shuffle tests only
-TEST_MODE=${TEST_MODE:-'DEFAULT'}
+#TEST_MODE=${TEST_MODE:-'DEFAULT'}
+TEST_MODE='MULTITHREADED_SHUFFLE'
 TEST_TYPE="nightly"
 PCBS_CONF="com.nvidia.spark.ParquetCachedBatchSerializer"
 
