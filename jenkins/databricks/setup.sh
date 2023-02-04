@@ -34,6 +34,8 @@ if [ -f $SPARK_HOME/conf/spark-env.sh ]; then
     local_dir=${local_dir##*=}
 
     sudo chmod 777 `echo $local_dir | xargs`
+    sudo mkdir -p /databricks/spark/work
+    sudo chmod 777 /databricks/spark/work
 fi
 
 CONDA_HOME=${CONDA_HOME:-"/databricks/conda"}
