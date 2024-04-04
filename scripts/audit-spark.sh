@@ -33,7 +33,7 @@ lastcommit=""
 basebranch="master"
 tag="branch-3.2"
 commonancestor=""
-REF=${REF:-"test-audit-script"}
+REF=${REF:-"main"}
 REF=main
 while getopts v:b:t:c: flag
 do
@@ -53,7 +53,7 @@ git clone https://github.com/apache/spark.git $SPARK_TREE
 
 if [ -f "$lastcommit" ]; then
     cd ${SPARK_TREE}
-    latestcommit="20b593811dc"
+    latestcommit=`cat ${lastcommit}`
     git checkout $basebranch
     git log --oneline HEAD...$latestcommit -- sql/core/src/main sql/catalyst/src/main \
 	    core/src/main/scala/org/apache/spark/shuffle core/src/main/scala/org/apache/spark/storage | tee ${COMMIT_DIFF_LOG}
