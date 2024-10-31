@@ -52,12 +52,19 @@
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-sql_${scala.binary.version}</artifactId>
             <version>${spark.test.version}</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.jcazevedo</groupId>
+            <artifactId>moultingyaml_2.12</artifactId>
+            <version>0.4.2</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.github.scopt/scopt -->
         <dependency>
             <groupId>com.github.scopt</groupId>
             <artifactId>scopt_${scala.binary.version}</artifactId>
             <version>3.7.1</version>
+            <scope>compile</scope>
         </dependency>
     </dependencies>
     <build>
