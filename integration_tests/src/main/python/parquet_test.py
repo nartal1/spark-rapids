@@ -1481,6 +1481,68 @@ def test_parquet_check_schema_compatibility_nested_types(spark_tmp_path):
             lambda spark: spark.read.schema(read_map_str_str_as_str_int).parquet(data_path).collect()),
         error_message='Parquet column cannot be converted')
 
+
+# Define test cases as tuples of (from_precision, from_scale, to_precision, to_scale)
+test_cases = [
+    # Widening  precision and scale by the same amount.
+    (5, 2, 7, 4), (5, 2, 10, 7), (5, 2, 20, 17),
+    (10, 2, 12, 4), (10, 2, 20, 12), (20, 2, 22, 4),
+    # Increasing precision by larger amount than scale
+    (5, 2, 6, 3), (5, 2, 12, 5), (5, 2, 22, 10),
+    # Narrowing precision and scale by the same amount
+    (7, 4, 5, 2), (10, 7, 5, 2), (20, 17, 5, 2),
+    (12, 4, 10, 2), (20, 17, 10, 2), (22, 4, 20, 2),
+    # Increasing precision and decreasing scale
+    (5, 4, 7, 2), (10, 6, 12, 4), (20, 7, 22, 5),
+    # Decreasing precision and increasing scale
+    (7, 2, 5, 4), (12, 4, 10, 6), (22, 5, 20, 7),
+    # Increasing precision by a smaller amount than scale
+    (5, 2, 6, 4), (10, 4, 12, 7), (20, 5, 22, 8)
+]
+@pytest.mark.parametrize('from_precision, from_scale, to_precision, to_scale', test_cases)
+def test_parquet_decimal_precision_and_scale_change(spark_tmp_path: str, from_precision: int, from_scale: int, to_precision: int, to_scale: int):
+    """Test decimal precision and scale changes when reading Parquet files with RAPIDS acceleration."""
+
+    data_path = f"{spark_tmp_path}/PARQUET_DECIMAL_DATA"
+    test_values: List[str] = ["1.23", "10.34"]
+    def gen_df(spark, values: List[str], precision: int, scale: int):
+        """Generate DataFrame with decimal values using string literals and cast."""
+        from pyspark.sql.functions import col
+        data = [(v,) for v in values]
+        df = spark.createDataFrame(data, ["value"])
+        # Cast the 'value' column to DecimalType
+        df = df.select(col("value").cast(DecimalType(precision, scale)).alias("decimal_col"))
+        return df
+
+    # Write test data with CPU
+    with_cpu_session(
+        lambda spark: gen_df(spark, test_values, from_precision, from_scale)
+        .coalesce(1)
+        .write.parquet(data_path)
+    )
+
+    # Create target schema for reading
+    read_schema = StructType([
+        StructField("decimal_col", DecimalType(to_precision, to_scale))
+    ])
+
+    # Determine if we expect an error based on precision and scale changes
+    expect_error = (
+        (to_scale < from_scale or (to_precision - to_scale) < (from_precision - from_scale))
+    )
+
+    if expect_error:
+        assert_gpu_and_cpu_error(
+            lambda spark: spark.read.schema(read_schema).parquet(data_path).collect(),
+            conf={},
+            error_message="Parquet column cannot be converted"
+        )
+    else:
+        assert_gpu_and_cpu_are_equal_collect(
+            lambda spark: spark.read.schema(read_schema).parquet(data_path),
+            conf={'spark.sql.parquet.enableVectorizedReader': 'false'})
+
+
 @pytest.mark.skipif(is_before_spark_320() or is_spark_321cdh(), reason='Encryption is not supported before Spark 3.2.0 or Parquet < 1.12')
 @pytest.mark.skipif(os.environ.get('INCLUDE_PARQUET_HADOOP_TEST_JAR', 'false') == 'false', reason='INCLUDE_PARQUET_HADOOP_TEST_JAR is disabled')
 @pytest.mark.parametrize('v1_enabled_list', ["", "parquet"])
