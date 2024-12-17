@@ -686,27 +686,42 @@ private case class GpuParquetFileFilterHandler(
       val footer: ParquetMetadata = try {
         footerReader match {
           case ParquetFooterReaderType.NATIVE =>
-            val serialized = withResource(readAndFilterFooter(file, conf,
+            withResource(readAndFilterFooter(file, conf,
               readDataSchema, filePath)) { tableFooter =>
-                if (tableFooter.getNumColumns <= 0) {
-                  // Special case because java parquet reader does not like having 0 columns.
-                  val numRows = tableFooter.getNumRows
-                  val block = new BlockMetaData()
-                  block.setRowCount(numRows)
-                  val schema = new MessageType("root")
-                  return ParquetFileInfoWithBlockMeta(filePath, Seq(block), file.partitionValues,
-                    schema, readDataSchema, DateTimeRebaseLegacy, DateTimeRebaseLegacy,
-                    hasInt96Timestamps = false)
+              if (tableFooter.getNumColumns <= 0) {
+                // Special case because java parquet reader does not like having 0 columns.
+                val numRows = tableFooter.getNumRows
+                val block = new BlockMetaData()
+                block.setRowCount(numRows)
+                val schema = new MessageType("root")
+                return ParquetFileInfoWithBlockMeta(filePath, Seq(block), file.partitionValues,
+                  schema, readDataSchema, DateTimeRebaseLegacy, DateTimeRebaseLegacy,
+                  hasInt96Timestamps = false)
+              }
+              val serialized = tableFooter.serializeThriftFile()
+              try {
+                withResource(serialized) { serialized =>
+                  withResource(new NvtxRange("readFilteredFooter", NvtxColor.YELLOW)) { _ =>
+                    //                val inputFile = new HMBInputFile(serialized)
+                    val inputFile = new HMBInputFile(serialized)
+                    // We already filtered the ranges so no need to do more here...
+                    ParquetFileReader.readFooter(inputFile, ParquetMetadataConverter.NO_FILTER)
+                  }
                 }
-
-                tableFooter.serializeThriftFile()
-            }
-            withResource(serialized) { serialized =>
-              withResource(new NvtxRange("readFilteredFooter", NvtxColor.YELLOW)) { _ =>
-                val inputFile = new HMBInputFile(serialized)
-
-                // We already filtered the ranges so no need to do more here...
-                ParquetFileReader.readFooter(inputFile, ParquetMetadataConverter.NO_FILTER)
+              } catch {
+                case ex: java.lang.IndexOutOfBoundsException =>
+                  if (readDataSchema.exists(_.dataType.isInstanceOf[StructType])) {
+                    val numRows = tableFooter.getNumRows
+                    val block = new BlockMetaData()
+                    block.setRowCount(numRows)
+                    val schema = new MessageType("root")
+                    return ParquetFileInfoWithBlockMeta(filePath, Seq(block), file.partitionValues,
+                      schema, readDataSchema, DateTimeRebaseLegacy, DateTimeRebaseLegacy,
+                      hasInt96Timestamps = false)
+                  } else {
+                    throw new RuntimeException(
+                      "Failed to read footer for file " + filePath, ex)
+                  }
               }
             }
           case _ =>
