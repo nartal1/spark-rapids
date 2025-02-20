@@ -47,7 +47,8 @@ import org.apache.spark.{SparkException, TaskContext}
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.io.{FileCommitProtocol, SparkHadoopWriterUtils}
 import org.apache.spark.shuffle.FetchFailedException
-import org.apache.spark.sql.SparkSession
+//import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.rapids.shims.TrampolineUtilsShims.SparkSessionShims
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, AttributeSet, Expression, SortOrder}
@@ -92,7 +93,7 @@ object GpuFileFormatWriter extends Logging {
    * @return The set of all partition paths that were updated during this write job.
    */
   def write(
-      sparkSession: SparkSession,
+      sparkSession: SparkSessionShims,
       plan: SparkPlan,
       fileFormat: ColumnarFileFormat,
       committer: FileCommitProtocol,
@@ -216,7 +217,7 @@ object GpuFileFormatWriter extends Logging {
   }
 
   private def executeWrite(
-      sparkSession: SparkSession,
+      sparkSession: SparkSessionShims,
       plan: SparkPlan,
       job: Job,
       description: GpuWriteJobDescription,
@@ -331,7 +332,7 @@ object GpuFileFormatWriter extends Logging {
    * Write files using [[SparkPlan.executeWrite]]
    */
   def executeWrite(
-      session: SparkSession,
+      session: SparkSessionShims,
       planForWrites: GpuWriteFilesExec,
       writeFilesSpec: GpuWriteFilesSpec,
       job: Job): Set[String] = {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,8 @@ import com.nvidia.spark.rapids.{ColumnarFileFormat, GpuDataWritingCommand}
 import org.apache.hadoop.conf.Configuration
 
 import org.apache.spark.internal.io.FileCommitProtocol
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.rapids.shims.TrampolineUtilsShims.SparkSessionShims
+//import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions.Attribute
@@ -37,7 +38,7 @@ private[hive] trait GpuSaveAsHiveFile extends GpuDataWritingCommand with SaveAsH
   //   (and takes a FileSinkDesc instead of FileFormat).
   // - Apache Spark 3.4 has removed all that logic.
   // - GPU Hive text writer does not support compression for output.
-  protected def gpuSaveAsHiveFile(sparkSession: SparkSession,
+  protected def gpuSaveAsHiveFile(sparkSession: SparkSessionShims,
       plan: SparkPlan,
       hadoopConf: Configuration,
       fileFormat: ColumnarFileFormat,

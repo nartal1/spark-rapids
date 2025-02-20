@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2019-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,12 +32,14 @@ import org.apache.spark.memory.TaskMemoryManager
 import org.apache.spark.scheduler.SparkListenerEvent
 import org.apache.spark.security.CryptoStreamUtils
 import org.apache.spark.serializer.{JavaSerializer, SerializerManager}
-import org.apache.spark.sql.{AnalysisException, SparkSession}
+import org.apache.spark.sql.{AnalysisException}
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.physical.BroadcastMode
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.rapids.shims.DataTypeUtilsShim
+import org.apache.spark.sql.rapids.shims.TrampolineUtilsShims.SparkSessionShims
+import org.apache.spark.sql.rapids.shims.TrampolineUtilsShims
 import org.apache.spark.sql.rapids.shims.SparkUpgradeExceptionShims
 import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.storage.BlockManagerId
@@ -101,7 +103,7 @@ object TrampolineUtil {
   }
 
   /** Shuts down and cleans up any existing Spark session */
-  def cleanupAnyExistingSession(): Unit = SparkSession.cleanupAnyExistingSession()
+  def cleanupAnyExistingSession(): Unit = TrampolineUtilsShims.cleanupAnyExistingSession()
 
   def asNullable(dt: DataType): DataType = dt.asNullable
 
@@ -180,7 +182,7 @@ object TrampolineUtil {
     Utils.classForName(className, initialize, noSparkClassLoader)
   }
 
-  def getSparkConf(spark: SparkSession): SQLConf = {
+  def getSparkConf(spark: SparkSessionShims): SQLConf = {
     spark.sessionState.conf
   }
 

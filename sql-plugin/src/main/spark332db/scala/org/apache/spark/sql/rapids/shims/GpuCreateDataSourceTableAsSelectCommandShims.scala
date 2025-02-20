@@ -40,9 +40,12 @@ import com.nvidia.spark.rapids.shims.SparkShimImpl
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.catalog._
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.execution.command.{CommandUtils, LeafRunnableCommand}
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.rapids._
+import org.apache.spark.sql.rapids.shims.TrampolineUtilsShims.SparkSessionShims
+
 import org.apache.spark.sql.sources.BaseRelation
 
 case class GpuCreateDataSourceTableAsSelectCommand(
@@ -116,7 +119,7 @@ case class GpuCreateDataSourceTableAsSelectCommand(
   }
 
   private def saveDataIntoTable(
-      session: SparkSession,
+      session: SparkSessionShims,
       table: CatalogTable,
       tableLocation: Option[URI],
       mode: SaveMode,

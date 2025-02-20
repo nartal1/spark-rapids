@@ -52,7 +52,7 @@ import com.nvidia.spark.rapids._
 import com.nvidia.spark.rapids.GpuOverrides.exec
 
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.SparkSession
+//import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.{InternalRow, TableIdentifier}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.Average
@@ -77,6 +77,7 @@ import org.apache.spark.sql.rapids.aggregate._
 import org.apache.spark.sql.rapids.execution._
 import org.apache.spark.sql.rapids.execution.python._
 import org.apache.spark.sql.rapids.shims._
+import org.apache.spark.sql.rapids.shims.TrampolineUtilsShims.SparkSessionShims
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.CalendarInterval
 
@@ -93,7 +94,7 @@ trait Spark320PlusShims extends SparkShims with RebaseShims with Logging {
       TypeSig.STRUCT + TypeSig.MAP + TypeSig.BINARY).nested(), TypeSig.all),
     (exec, conf, p, r) => new GpuCustomShuffleReaderMeta(exec, conf, p, r))
 
-  override final def sessionFromPlan(plan: SparkPlan): SparkSession = {
+  override final def sessionFromPlan(plan: SparkPlan): SparkSessionShims = {
     plan.session
   }
 
@@ -146,7 +147,7 @@ trait Spark320PlusShims extends SparkShims with RebaseShims with Logging {
 
   override def shouldFailDivOverflow(): Boolean = SQLConf.get.ansiEnabled
 
-  override def leafNodeDefaultParallelism(ss: SparkSession): Int = {
+  override def leafNodeDefaultParallelism(ss: SparkSessionShims): Int = {
     Spark32XShimsUtils.leafNodeDefaultParallelism(ss)
   }
 

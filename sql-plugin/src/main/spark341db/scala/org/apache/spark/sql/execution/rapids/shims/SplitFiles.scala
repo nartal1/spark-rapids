@@ -34,9 +34,11 @@ import org.apache.hadoop.io.compress.{CompressionCodecFactory, SplittableCompres
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, PartitionDirectory, PartitionedFile}
+import org.apache.spark.sql.rapids.shims.TrampolineUtilsShims.SparkSessionShims
+
 
 trait SplitFiles {
-  def splitFiles(sparkSession: SparkSession,
+  def splitFiles(sparkSession: SparkSessionShims,
       hadoopConf: Configuration,
       selectedPartitions: Array[PartitionDirectory],
       maxSplitBytes: Long): Seq[PartitionedFile] = {
@@ -50,13 +52,15 @@ trait SplitFiles {
       val codec = new CompressionCodecFactory(hadoopConf).getCodec(filePath)
       codec == null || codec.isInstanceOf[SplittableCompressionCodec]
     }
-
     selectedPartitions.flatMap { partition =>
       partition.files.flatMap { f =>
+        val filePath = f.getPath
+
         PartitionedFileUtilsShim.splitFiles(
-          sparkSession,
+//          sparkSession,
           f,
-          isSplitable = canBeSplit(f.getPath, hadoopConf),
+          filePath,
+          isSplitable = canBeSplit(filePath, hadoopConf),
           maxSplitBytes,
           partition.values
         )
@@ -73,11 +77,13 @@ trait SplitFiles {
       partition.files.flatMap { file =>
         // getPath() is very expensive so we only want to call it once in this block:
         val filePath = file.getPath
+//        val sparkSession = relation.sparkSession
         val isSplitable = relation.fileFormat.isSplitable(
           relation.sparkSession, relation.options, filePath)
         PartitionedFileUtilsShim.splitFiles(
-          sparkSession = relation.sparkSession,
+//          sparkSession = relation.sparkSession,
           file = file,
+          filePath = filePath,
           isSplitable = isSplitable,
           maxSplitBytes = maxSplitBytes,
           partitionValues = partition.values

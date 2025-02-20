@@ -43,6 +43,7 @@ import org.apache.hadoop.hive.ql.ErrorMsg
 import org.apache.hadoop.hive.ql.plan.TableDesc
 
 import org.apache.spark.SparkException
+import org.apache.spark.sql.rapids.shims.TrampolineUtilsShims.SparkSessionShims
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.catalog.{CatalogTable, CatalogTableType, ExternalCatalog, ExternalCatalogUtils, ExternalCatalogWithListener}
 import org.apache.spark.sql.catalyst.expressions.Attribute
@@ -105,7 +106,7 @@ case class GpuInsertIntoHiveTable(
    * `org.apache.hadoop.hive.serde2.SerDe` and the
    * `org.apache.hadoop.mapred.OutputFormat` provided by the table definition.
    */
-  override def runColumnar(sparkSession: SparkSession, child: SparkPlan): Seq[ColumnarBatch] = {
+  override def runColumnar(sparkSession: SparkSessionShims, child: SparkPlan): Seq[ColumnarBatch] = {
     val externalCatalog = sparkSession.sharedState.externalCatalog
     val hadoopConf = sparkSession.sessionState.newHadoopConf()
 
@@ -150,7 +151,7 @@ case class GpuInsertIntoHiveTable(
   }
 
   private def processInsert(
-      sparkSession: SparkSession,
+      sparkSession: SparkSessionShims,
       externalCatalog: ExternalCatalog,
       hadoopConf: Configuration,
       tableDesc: TableDesc,

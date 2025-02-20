@@ -39,6 +39,7 @@ import scala.util.control.NonFatal
 import com.nvidia.spark.rapids._
 
 import org.apache.spark.sql.{SaveMode, SparkSession}
+import org.apache.spark.sql.rapids.shims.TrampolineUtilsShims.SparkSessionShims
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.catalog.{CatalogTable, SessionCatalog}
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
@@ -62,7 +63,7 @@ trait GpuCreateHiveTableAsSelectBase extends GpuRunnableCommand {
 
   protected val tableIdentifier: TableIdentifier = tableDesc.identifier
 
-  override def runColumnar(sparkSession: SparkSession, child: SparkPlan): Seq[ColumnarBatch] = {
+  override def runColumnar(sparkSession: SparkSessionShims, child: SparkPlan): Seq[ColumnarBatch] = {
     val catalog = sparkSession.sessionState.catalog
     val tableExists = catalog.tableExists(tableIdentifier)
 

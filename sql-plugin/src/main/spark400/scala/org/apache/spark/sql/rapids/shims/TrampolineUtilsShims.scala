@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,17 +17,18 @@
 /*** spark-rapids-shim-json-lines
 {"spark": "400"}
 spark-rapids-shim-json-lines ***/
-package org.apache.spark.sql.execution.rapids.shims
 
-import org.apache.spark.sql.execution.PartitionedFileUtil
-import org.apache.spark.sql.execution.datasources._
+package org.apache.spark.sql.rapids.shims
 
-object FilePartitionShims extends SplitFiles {
-  def getPartitions(selectedPartitions: Array[PartitionDirectory]): Array[PartitionedFile] = {
-    selectedPartitions.flatMap { p =>
-      p.files.map { f =>
-        PartitionedFileUtil.getPartitionedFile(f, f.getPath, p.values, 0, f.getLen)
-      }
-    }
-  }
+//import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.classic.SparkSession
+import org.apache.spark.sql.classic.Strategy
+
+object TrampolineUtilsShims {
+  type StrategyShims = Strategy
+
+  type SparkSessionShims = SparkSession
+  def cleanupAnyExistingSession(): Unit = SparkSession.cleanupAnyExistingSession()
+
+  //  type DataFrameShims = DataFrame
 }

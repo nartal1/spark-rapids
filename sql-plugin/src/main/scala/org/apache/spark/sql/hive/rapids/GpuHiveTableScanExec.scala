@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,13 +30,14 @@ import com.nvidia.spark.rapids.GpuMetric.{BUFFER_TIME, DEBUG_LEVEL, DESCRIPTION_
 import com.nvidia.spark.rapids.RapidsPluginImplicits.AutoCloseableProducingSeq
 import com.nvidia.spark.rapids.jni.CastStrings
 import com.nvidia.spark.rapids.shims.{ShimFilePartitionReaderFactory, ShimSparkPlan, SparkShimImpl}
+import org.apache.spark.sql.rapids.shims.TrampolineUtilsShims.SparkSessionShims
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.hadoop.hive.ql.metadata.{Partition => HivePartition}
 
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.SparkSession
+// import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.CastSupport
 import org.apache.spark.sql.catalyst.catalog.HiveTableRelation
@@ -244,7 +245,7 @@ case class GpuHiveTableScanExec(requestedAttributes: Seq[Attribute],
   private def createReadRDDForDirectories(readFile: PartitionedFile => Iterator[InternalRow],
                                           directories: Seq[(URI, InternalRow)],
                                           readSchema: StructType,
-                                          sparkSession: SparkSession,
+                                          sparkSession: SparkSessionShims,
                                           hadoopConf: Configuration): RDD[ColumnarBatch] = {
     def isNonEmptyDataFile(f: FileStatus): Boolean = {
       if (!f.isFile || f.getLen == 0) {
@@ -281,7 +282,7 @@ case class GpuHiveTableScanExec(requestedAttributes: Seq[Attribute],
                 readFile: PartitionedFile => Iterator[InternalRow],
                 hiveTableRelation: HiveTableRelation,
                 readSchema: StructType,
-                sparkSession: SparkSession,
+                sparkSession: SparkSessionShims,
                 hadoopConf: Configuration
               ): RDD[ColumnarBatch] = {
     val tableLocation: URI = hiveTableRelation.tableMeta.storage.locationUri.getOrElse{
@@ -301,7 +302,7 @@ case class GpuHiveTableScanExec(requestedAttributes: Seq[Attribute],
                 readFile: PartitionedFile => Iterator[InternalRow],
                 hiveTableRelation: HiveTableRelation,
                 readSchema: StructType,
-                sparkSession: SparkSession,
+                sparkSession: SparkSessionShims,
                 hadoopConf: Configuration
               ): RDD[ColumnarBatch] = {
     val partitionColTypes = hiveTableRelation.partitionCols.map(_.dataType)
@@ -325,6 +326,7 @@ case class GpuHiveTableScanExec(requestedAttributes: Seq[Attribute],
   }
 
   lazy val inputRDD: RDD[ColumnarBatch] = {
+   // val sparkSession = org.apache.spark.sql.rapids.shims.TrampolineUtilsShims.SparkSessionShims
     // Assume Delimited text.
     val options                   = hiveTableRelation.tableMeta.properties ++
                                     hiveTableRelation.tableMeta.storage.properties

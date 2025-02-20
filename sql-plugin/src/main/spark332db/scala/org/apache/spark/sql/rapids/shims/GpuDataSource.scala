@@ -42,11 +42,12 @@ import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.execution.command.DataWritingCommand
 import org.apache.spark.sql.execution.datasources._
+import org.apache.spark.sql.rapids.shims.TrampolineUtilsShims.SparkSessionShims
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types.{CalendarIntervalType, StructType}
 
 case class GpuDataSource(
-    sparkSession: SparkSession,
+    sparkSession: SparkSessionShims,
     className: String,
     paths: Seq[String] = Nil,
     userSpecifiedSchema: Option[StructType] = None,

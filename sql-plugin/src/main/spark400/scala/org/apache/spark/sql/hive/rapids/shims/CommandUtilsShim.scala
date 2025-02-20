@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,8 @@
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.sql.hive.rapids.shims
 
-import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.TableIdentifier
+import org.apache.spark.sql.classic.SparkSession
 import org.apache.spark.sql.execution.command.CommandUtils
 
 object CommandUtilsShim {

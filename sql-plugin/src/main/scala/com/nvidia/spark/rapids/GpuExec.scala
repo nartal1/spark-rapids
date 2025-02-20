@@ -24,7 +24,9 @@ import org.apache.hadoop.fs.Path
 
 import org.apache.spark.rapids.LocationPreservingMapPartitionsRDD
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.SparkSession
+//import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.rapids.shims.TrampolineUtilsShims.SparkSessionShims
+
 import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference, Expression, ExprId}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.trees.TreeNodeTag
@@ -45,7 +47,7 @@ object GpuExec {
 trait GpuExec extends SparkPlan {
   import GpuMetric._
 
-  def sparkSession: SparkSession = {
+  def sparkSession: SparkSessionShims = {
     SparkShimImpl.sessionFromPlan(this)
   }
 

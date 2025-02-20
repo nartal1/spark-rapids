@@ -27,10 +27,11 @@ import org.apache.commons.lang3.reflect.MethodUtils
 import org.apache.spark.{SPARK_BRANCH, SPARK_BUILD_DATE, SPARK_BUILD_USER, SPARK_REPO_URL, SPARK_REVISION, SPARK_VERSION, SparkConf, SparkEnv}
 import org.apache.spark.api.plugin.{DriverPlugin, ExecutorPlugin}
 import org.apache.spark.api.resource.ResourceDiscoveryPlugin
-import org.apache.spark.sql.Strategy
+import org.apache.spark.sql.SparkSessionExtensions
+//import org.apache.spark.sql.Strategy
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{ColumnarRule, SparkPlan}
+//import org.apache.spark.sql.execution.{ColumnarRule, SparkPlan}
 import org.apache.spark.sql.rapids.execution.UnshimmedTrampolineUtil
 import org.apache.spark.util.MutableURLClassLoader
 
@@ -339,21 +340,21 @@ object ShimLoader {
     ShimReflectionUtils.newInstanceOf("com.nvidia.spark.rapids.RapidsExecutorPlugin")
   }
 
-  def newColumnarOverrideRules(): ColumnarRule = {
-    ShimReflectionUtils.newInstanceOf("com.nvidia.spark.rapids.ColumnarOverrideRules")
-  }
-
-  def newGpuQueryStagePrepOverrides(): Rule[SparkPlan] = {
-    ShimReflectionUtils.newInstanceOf("com.nvidia.spark.rapids.GpuQueryStagePrepOverrides")
-  }
+//  def newColumnarOverrideRules(): ColumnarRule = {
+//    ShimReflectionUtils.newInstanceOf("com.nvidia.spark.rapids.ColumnarOverrideRules")
+//  }
+//
+//  def newGpuQueryStagePrepOverrides(): Rule[SparkPlan] = {
+//    ShimReflectionUtils.newInstanceOf("com.nvidia.spark.rapids.GpuQueryStagePrepOverrides")
+//  }
 
   def newUdfLogicalPlanRules(): Rule[LogicalPlan] = {
     ShimReflectionUtils.newInstanceOf("com.nvidia.spark.udf.LogicalPlanRules")
   }
 
-  def newStrategyRules(): Strategy = {
-    ShimReflectionUtils.newInstanceOf("com.nvidia.spark.rapids.StrategyRules")
-  }
+//  def newStrategyRules(): Strategy = {
+//    ShimReflectionUtils.newInstanceOf("com.nvidia.spark.rapids.StrategyRules")
+//  }
 
   def newInternalExclusiveModeGpuDiscoveryPlugin(): ResourceDiscoveryPlugin = {
     ShimReflectionUtils.
@@ -375,5 +376,38 @@ object ShimLoader {
 
   def loadGpuColumnVector(): Class[_] = {
     ShimReflectionUtils.loadClass("com.nvidia.spark.rapids.GpuColumnVector")
+  }
+
+  def applyOverridesToExtensions(extensions: SparkSessionExtensions): Unit = {
+    val shimClassName = "com.nvidia.spark.rapids.SparkShims"
+
+    try {
+      // Load the class from whichever 'spark-rapids' JAR is on the classpath
+      val clazz = Class.forName(shimClassName)
+
+      // Suppose the method is a static method in a Scala 'object', so we do:
+      //   val method =
+      //   clazz.getMethod("applyOverridesToExtensions", classOf[SparkSessionExtensions])
+      //   method.invoke(null, extensions)
+      // OR we can get the MODULE$ field if it is an 'object' and call the method.
+      //
+      // We'll do direct method reflection by name:
+
+      val method = clazz.getMethod("applyOverridesToExtensions", classOf[SparkSessionExtensions])
+      method.invoke(null, extensions)
+
+    } catch {
+      case e: ClassNotFoundException =>
+        throw new IllegalStateException(
+          s"Could not find the shims class '$shimClassName'. " +
+              "Please ensure you have the correct spark-rapids JAR on the classpath.", e)
+      case e: NoSuchMethodException =>
+        throw new IllegalStateException(
+          s"The shims class '$shimClassName' does not define " +
+              "applyOverridesToExtensions(SparkSessionExtensions).", e)
+      case e: Throwable =>
+        throw new RuntimeException(
+          s"Failed to invoke applyOverridesToExtensions on '$shimClassName'.", e)
+    }
   }
 }
