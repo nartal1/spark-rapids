@@ -62,6 +62,13 @@ object TestResourceFinder {
 object SparkSessionHolder extends Logging {
 
   private var spark = createSparkSession()
+  val ansiEnabledProperty = System.getProperty("spark.sql.ansi.enabled")
+  System.err.println(s"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!ansiEnabledProperty!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!: $ansiEnabledProperty")    
+  System.exit(123)
+  if (ansiEnabledProperty != null) {
+     System.out.println(s"Setting spark.sql.ansi.enabled to $ansiEnabledProperty")
+     spark.conf.set("spark.sql.ansi.enabled", ansiEnabledProperty)
+  }
   private var origConf = spark.conf.getAll
   private var origConfKeys = origConf.keys.toSet
 
@@ -79,17 +86,21 @@ object SparkSessionHolder extends Logging {
     // Add Locale setting
     Locale.setDefault(Locale.US)
 
+    
+    
+
     val builder = getBuilder()
         .master("local[1]")
         .config("spark.sql.adaptive.enabled", "false")
         .config("spark.rapids.sql.enabled", "false")
         .config("spark.rapids.sql.test.enabled", "false")
-        .config("spark.sql.ansi.enabled", "false")
         .config("spark.plugins", "com.nvidia.spark.SQLPlugin")
         .config("spark.sql.queryExecutionListeners",
           "org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback")
         .config("spark.sql.warehouse.dir", sparkWarehouseDir.getAbsolutePath)
-        .appName("rapids spark plugin integration tests (scala)")
+        .appName("rapids spark plugin integration tests (scala)")    
+
+
 
     // comma separated config from command line
     val commandLineVariables = System.getenv("SPARK_CONF")

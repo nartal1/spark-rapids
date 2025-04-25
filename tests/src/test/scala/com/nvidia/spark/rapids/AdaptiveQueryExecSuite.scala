@@ -101,6 +101,7 @@ class AdaptiveQueryExecSuite
       val (_, innerAdaptivePlan) = runAdaptiveAndVerifyResult(
         spark,
         "SELECT * FROM skewData1 join skewData2 ON key1 = key2")
+      println(s"innerAdaptivePlan: ${innerAdaptivePlan.toString}")
       val shuffleExchanges =
           PlanUtils.findOperators(innerAdaptivePlan, _.isInstanceOf[ShuffleQueryStageExec])
               .map(_.asInstanceOf[ShuffleQueryStageExec])

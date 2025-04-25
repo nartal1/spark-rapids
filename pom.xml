@@ -1520,6 +1520,8 @@ This will force full Scala code rebuild in downstream modules.
                             <spark.ui.showConsoleProgress>false</spark.ui.showConsoleProgress>
                             <spark.unsafe.exceptionOnMemoryLeak>true</spark.unsafe.exceptionOnMemoryLeak>
                         </systemProperties>
+                        <forkMode>once</forkMode>
+                        <logForkedProcessCommand>true</logForkedProcessCommand>
                         <tagsToExclude>${test.exclude.tags}</tagsToExclude>
                         <tagsToInclude>${test.include.tags}</tagsToInclude>
                     </configuration>
