@@ -18,7 +18,7 @@ package com.nvidia.spark.rapids
 
 import java.io.File
 
-import com.nvidia.spark.rapids.shims.SparkShimImpl
+import com.nvidia.spark.rapids.shims.{SparkShimImpl, OperatorsUtilShims}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
@@ -96,13 +96,16 @@ class AdaptiveQueryExecSuite
     collectWithSubqueries(plan)(SparkShimImpl.reusedExchangeExecPfn)
   }
 
-  test("get row counts from executed shuffle query stages") {
+  // test("get row counts from executed shuffle query stages") {
+  test("getrowcounts") {
+  
     skewJoinTest { spark =>
       val (_, innerAdaptivePlan) = runAdaptiveAndVerifyResult(
         spark,
         "SELECT * FROM skewData1 join skewData2 ON key1 = key2")
+      // println(s"innerAdaptivePlan: ${innerAdaptivePlan.toString}")
       val shuffleExchanges =
-          PlanUtils.findOperators(innerAdaptivePlan, _.isInstanceOf[ShuffleQueryStageExec])
+          SparkShimImpl.findOperators(innerAdaptivePlan, _.isInstanceOf[ShuffleQueryStageExec])
               .map(_.asInstanceOf[ShuffleQueryStageExec])
       assert(shuffleExchanges.length === 2)
       val stats = shuffleExchanges.map(_.getRuntimeStatistics)
@@ -398,7 +401,8 @@ class AdaptiveQueryExecSuite
     }, conf)
   }
 
-  test("Keep transition to row when collecting results") {
+  // test("Keep transition to row when collecting results") {
+  test("KeepTransition") {
     logError("Keep transition to row when collecting results")
     val conf = new SparkConf()
         .set(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "true")
@@ -428,8 +432,22 @@ class AdaptiveQueryExecSuite
         s"Expected to capture exactly one plan: ${capturedPlans.mkString("\n")}")
       val executedPlan = ExecutionPlanCaptureCallback.extractExecutedPlan(capturedPlans.head)
 
-      val transition = executedPlan
-          .asInstanceOf[GpuColumnarToRowExec]
+      val transition1 = OperatorsUtilShims.findOperators(executedPlan, _.isInstanceOf[GpuColumnarToRowExec])
+      println(s"transition1: ${transition1.mkString("\n")}")
+      println(s"executedPlan: ${executedPlan.toString}")
+      println(s"transition1 head: ${transition1.head.toString}")
+
+      // val transition= if(isSpark400OrLater) {
+      //   executedPlan.asInstanceOf[ResultQueryStageExec]
+      // } else {
+      //   executedPlan.asInstanceOf[GpuColumnarToRowExec]
+      // }
+
+      // if(isSparkVer)
+      // val transition = executedPlan
+      //     .asInstanceOf[GpuColumnarToRowExec]
+
+      val transition = transition1.head.asInstanceOf[GpuColumnarToRowExec]
 
       // because we are calling collect, AvoidAdaptiveTransitionToRow will not bypass
       // GpuColumnarToRowExec so we should see accurate metrics
@@ -495,7 +513,8 @@ class AdaptiveQueryExecSuite
     }, conf)
   }
 
-  test("Change merge join to broadcast join without local shuffle reader") {
+  // test("Change merge join to broadcast join without local shuffle reader") {
+  test("ChangeMerge") {  
     logError("Change merge join to broadcast join without local shuffle reader")
 
     val conf = new SparkConf()
@@ -516,6 +535,7 @@ class AdaptiveQueryExecSuite
           |where t1.l = 1
         """.stripMargin)
 
+      println(s"plan from CHangeMerge: ${plan.toString}")
       val smj = findTopLevelSortMergeJoin(plan)
       assert(smj.size == 2)
       val bhj = findTopLevelGpuBroadcastHashJoin(adaptivePlan)
@@ -600,30 +620,50 @@ class AdaptiveQueryExecSuite
     }, conf)
   }
 
-  test("SPARK-35585: Support propagate empty relation through project/filter") {
+  // test("SPARK-35585: Support propagate empty relation through project/filter") {
+  test("SPARK-35585") {
     logError("SPARK-35585: Support propagate empty relation through project/filter")
     assumeSpark320orLater
+    // Spark 4.0+ has EmptyRelationExec, but 3.2-3.4 has LocalTableScanExec when AQE is enabled
 
+    // Issue to support EmptyRelationExec:https://github.com/NVIDIA/spark-rapids/issues/11100
     val conf = new SparkConf()
         .set(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key, "true")
         .set(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key, "-1")
         .set(RapidsConf.TEST_ALLOWED_NONGPU.key,
-          "DataWritingCommandExec,ShuffleExchangeExec,HashPartitioning")
+          "DataWritingCommandExec,ShuffleExchangeExec,HashPartitioning,EmptyRelationExec")
 
     withGpuSparkSession(spark => {
       testData(spark)
 
       val (plan1, adaptivePlan1) = runAdaptiveAndVerifyResult(spark,
         "SELECT key FROM testData WHERE key = 0 ORDER BY key, value")
+      // println(s"plan1: ${plan1.toString}")
+      // println(s"adaptivePlan1: ${adaptivePlan1.toString}")
       assert(findTopLevelSort(plan1).size == 1)
-      assert(stripAQEPlan(adaptivePlan1).isInstanceOf[LocalTableScanExec])
+      
+      // Check for either LocalTableScanExec (pre-4.0) or EmptyRelationExec (4.0+)
+      val strippedPlan1 = stripAQEPlan(adaptivePlan1)
+      // println(s"strippedPlan1: ${strippedPlan1.toString}")
+      // println(s"strippedPlan head name and instance is : ${strippedPlan1.getClass.getName}")
+      // println(s"simpleName of strippedPlan1 is : ${strippedPlan1.getClass.getSimpleName}")
+      assert(strippedPlan1.isInstanceOf[LocalTableScanExec] || 
+            strippedPlan1.getClass.getSimpleName.equals("EmptyRelationExec"),
+            s"Expected empty relation plan, but got: ${strippedPlan1}")
 
       val (plan2, adaptivePlan2) = runAdaptiveAndVerifyResult(spark,
         "SELECT key FROM (SELECT * FROM testData WHERE value = 'no_match' ORDER BY key)" +
             " WHERE key > rand()")
+      // println(s"plan2: ${plan2.toString}")
+      // println(s"adaptivePlan2: ${adaptivePlan2.toString}")
       assert(findTopLevelSort(plan2).size == 1)
-      assert(stripAQEPlan(adaptivePlan2).isInstanceOf[LocalTableScanExec])
-    }, conf)
+      
+      // Check for either LocalTableScanExec (pre-4.0) or EmptyRelationExec (4.0+)
+      val strippedPlan2 = stripAQEPlan(adaptivePlan2)
+      assert(strippedPlan2.isInstanceOf[LocalTableScanExec] || 
+            strippedPlan2.getClass.getSimpleName.equals("EmptyRelationExec"),
+            s"Expected empty relation plan, but got: ${strippedPlan2}")
+    }, conf)      
   }
 
   private def checkNumLocalShuffleReaders(

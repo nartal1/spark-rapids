@@ -341,6 +341,7 @@ trait Spark320PlusShims extends SparkShims with RebaseShims with Logging {
   override def hasCastFloatTimestampUpcast: Boolean = true
 
   override def findOperators(plan: SparkPlan, predicate: SparkPlan => Boolean): Seq[SparkPlan] = {
+    // println(s"findOperators from Spark320PlusShims: ${plan.toString}")
     def recurse(
         plan: SparkPlan,
         predicate: SparkPlan => Boolean,
@@ -353,12 +354,14 @@ trait Spark320PlusShims extends SparkShims with RebaseShims with Logging {
         case qs: BroadcastQueryStageExec => recurse(qs.broadcast, predicate, accum)
         case qs: ShuffleQueryStageExec => recurse(qs.shuffle, predicate, accum)
         case c: CommandResultExec => recurse(c.commandPhysicalPlan, predicate, accum)
+        case rq: ResultQueryStageExec => recurse(rq.plan, predicate, accum)
         case other => other.children.flatMap(p => recurse(p, predicate, accum)).headOption
       }
       accum.toSeq
     }
 
     recurse(plan, predicate, new ListBuffer[SparkPlan]())
+    // OperatorsUtilShims.findOperators(plan, predicate)
   }
 
   override def skipAssertIsOnTheGpu(plan: SparkPlan): Boolean = plan match {
