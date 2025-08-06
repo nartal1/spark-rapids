@@ -151,7 +151,7 @@ url_gen = StringGen(url_pattern)
 supported_parts = ['PROTOCOL', 'HOST', 'QUERY', 'PATH', 'invalid', 'path']
 unsupported_parts = ['REF', 'FILE', 'AUTHORITY', 'USERINFO']
 
-@pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
+# @pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
 @pytest.mark.parametrize('data_gen', [url_gen, edge_cases_gen], ids=idfn)
 @pytest.mark.parametrize('part', supported_parts, ids=idfn)
 def test_parse_url_supported(data_gen, part):
@@ -160,15 +160,15 @@ def test_parse_url_supported(data_gen, part):
         ansi_disabled_conf  # ANSI mode failures are tested in test_parse_url_query_ansi_mode.
     )
 
-@pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
+#@pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
 @allow_non_gpu('ProjectExec', 'ParseUrl')
 @pytest.mark.parametrize('part', unsupported_parts, ids=idfn)
 def test_parse_url_unsupported_fallback(part):
     assert_gpu_fallback_collect(
         lambda spark: unary_op_df(spark, url_gen).selectExpr("a", "parse_url(a, '" + part + "')"),
-        'ParseUrl')
+        'ProjectExec' if is_spark_400_or_later() else 'ParseUrl')
 
-@pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
+# @pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
 def test_parse_url_query_with_key():
     url_gen = StringGen(url_pattern_with_key)
     assert_gpu_and_cpu_are_equal_collect(
@@ -178,7 +178,7 @@ def test_parse_url_query_with_key():
     )
 
 
-@pytest.mark.xfail(reason="https://github.com/NVIDIA/spark-rapids/issues/11193")
+# @pytest.mark.xfail(reason="https://github.com/NVIDIA/spark-rapids/issues/11193")
 def test_parse_url_query_ansi_mode():
     """
     This tests parse_url()'s behaviour when ANSI mode is enabled.
@@ -188,6 +188,11 @@ def test_parse_url_query_ansi_mode():
     for parse_url().
     """
     url_gen = StringGen(url_pattern_with_key)
+    # assert_gpu_and_cpu_error(
+    #     lambda spark: unary_op_df(spark, url_gen)
+    #     .selectExpr("a", "parse_url(a, 'QUERY', 'abc')", "parse_url(a, 'QUERY', 'a')").collect(),
+    #     conf = ansi_enabled_conf, error_message="Exception"
+    # )
     assert_gpu_and_cpu_are_equal_collect(
         lambda spark: unary_op_df(spark, url_gen)
         .selectExpr("a", "parse_url(a, 'QUERY', 'abc')", "parse_url(a, 'QUERY', 'a')"),
@@ -196,7 +201,7 @@ def test_parse_url_query_ansi_mode():
 
 @pytest.mark.skipif(is_before_spark_400(), reason="try_parse_url is not supported before Spark 4.0.0")
 # Add support for parse_url() in ANSI mode https://github.com/NVIDIA/spark-rapids/issues/11193
-@allow_non_gpu('ProjectExec')
+# @allow_non_gpu('ProjectExec')
 def test_try_parse_url_query_ansi_mode():
     url_gen = StringGen(url_pattern_with_key)
     assert_gpu_and_cpu_are_equal_collect(
@@ -205,7 +210,7 @@ def test_try_parse_url_query_ansi_mode():
         conf = ansi_enabled_conf
     )
 
-@pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
+# @pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
 def test_parse_url_query_with_key_column():
     url_gen = StringGen(url_pattern_with_key)
     key_gen = StringGen('[a-d]{1,3}')
@@ -216,7 +221,7 @@ def test_parse_url_query_with_key_column():
     )
 
 
-@pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
+# @pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
 @pytest.mark.parametrize('key', ['a?c', '*'], ids=idfn)
 @allow_non_gpu('ProjectExec', 'ParseUrl')
 def test_parse_url_query_with_key_regex_fallback(key):
@@ -224,9 +229,9 @@ def test_parse_url_query_with_key_regex_fallback(key):
     assert_gpu_fallback_collect(
         lambda spark: unary_op_df(spark, url_gen)
             .selectExpr("a", "parse_url(a, 'QUERY', '" + key + "')"),
-            'ParseUrl')
+            'ProjectExec')
 
-@pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
+# @pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
 @pytest.mark.parametrize('part', supported_parts, ids=idfn)
 def test_parse_url_with_key(part):
     assert_gpu_and_cpu_are_equal_collect(
@@ -234,10 +239,10 @@ def test_parse_url_with_key(part):
         ansi_disabled_conf  # ANSI mode failures are tested in test_parse_url_query_ansi_mode.
     )
 
-@pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
+# @pytest.mark.xfail(is_spark_400_or_later(), reason="https://github.com/NVIDIA/spark-rapids/issues/12941")
 @allow_non_gpu('ProjectExec', 'ParseUrl')
 @pytest.mark.parametrize('part', unsupported_parts, ids=idfn)
 def test_parse_url_with_key_fallback(part):
     assert_gpu_fallback_collect(
         lambda spark: unary_op_df(spark, url_gen).selectExpr("parse_url(a, '" + part + "', 'key')"),
-        'ParseUrl')
+        'ProjectExec')
