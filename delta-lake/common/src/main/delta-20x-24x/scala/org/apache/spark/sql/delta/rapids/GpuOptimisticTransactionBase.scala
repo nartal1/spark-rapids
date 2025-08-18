@@ -31,4 +31,23 @@ abstract class GpuOptimisticTransactionBase(
     (implicit clock: Clock)
     extends AbstractGpuOptimisticTransactionBase(deltaLog, catalog, snapshot, rapidsConf)(clock) {
 
+  import org.apache.spark.sql.delta.constraints.{Constraint, DeltaInvariantCheckerExec}
+  import org.apache.spark.sql.execution.SparkPlan
+
+  /**
+   * Delta 20x-24x implementation - uses Seq[Constraint] for DeltaInvariantCheckerExec
+   */
+  override protected def addInvariantChecks(plan: SparkPlan, constraints: Seq[Constraint]): SparkPlan = {
+    val cpuInvariants =
+      DeltaInvariantCheckerExec.buildInvariantChecks(plan.output, constraints, plan.session)
+    GpuCheckDeltaInvariant.maybeConvertToGpu(cpuInvariants, rapidsConf) match {
+      case Some(gpuInvariants) =>
+        val gpuPlan = convertToGpu(plan)
+        GpuDeltaInvariantCheckerExec(gpuPlan, gpuInvariants)
+      case None =>
+        val cpuPlan = convertToCpu(plan)
+        // Delta 20x-24x expects Seq[Constraint]
+        DeltaInvariantCheckerExec(cpuPlan, constraints)
+    }
+  }
 }

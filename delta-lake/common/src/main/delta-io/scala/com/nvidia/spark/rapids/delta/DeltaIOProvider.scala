@@ -26,6 +26,7 @@ import com.nvidia.spark.rapids._
 import org.apache.hadoop.fs.Path
 
 import org.apache.spark.sql.{DataFrame, SaveMode}
+import org.apache.spark.sql.rapids.shims.TrampolineConnectShims
 import org.apache.spark.sql.connector.catalog.{StagingTableCatalog, SupportsWrite}
 import org.apache.spark.sql.connector.write.V1Write
 import org.apache.spark.sql.delta.{DeltaLog, DeltaOptions, DeltaParquetFileFormat}
@@ -245,8 +246,10 @@ abstract class DeltaIOProvider extends DeltaProviderImplBase {
           // TODO: Push this to Apache Spark
           // Re-cache all cached plans(including this relation itself, if it's cached) that refer
           // to this data source relation. This is the behavior for InsertInto
-          session.sharedState.cacheManager.recacheByPlan(
-            session, LogicalRelation(deltaLog.createRelation()))
+          // Re-cache using version-compatible SparkSession via TrampolineConnectShims
+          val activeSession = TrampolineConnectShims.getActiveSession
+          activeSession.sharedState.cacheManager.recacheByPlan(
+            activeSession, LogicalRelation(deltaLog.createRelation()))
         }
       }
     }

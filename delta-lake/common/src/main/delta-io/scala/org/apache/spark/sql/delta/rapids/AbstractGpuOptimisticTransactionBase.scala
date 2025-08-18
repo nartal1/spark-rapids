@@ -21,7 +21,7 @@ import com.nvidia.spark.rapids.{GpuAlias, GpuColumnarToRowExec, GpuExec, GpuProj
 import org.apache.spark.sql.catalyst.catalog.CatalogTable
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, NamedExpression}
 import org.apache.spark.sql.delta.{DeltaLog, Snapshot}
-import org.apache.spark.sql.delta.constraints.{Constraint, DeltaInvariantCheckerExec}
+import org.apache.spark.sql.delta.constraints.Constraint
 import org.apache.spark.sql.delta.metering.DeltaLogging
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.execution.SparkPlan
@@ -55,18 +55,7 @@ abstract class AbstractGpuOptimisticTransactionBase(
    * @param constraints Constraints to check on the table
    * @return GPU columnar plan to execute
    */
-  protected def addInvariantChecks(plan: SparkPlan, constraints: Seq[Constraint]): SparkPlan = {
-    val cpuInvariants =
-      DeltaInvariantCheckerExec.buildInvariantChecks(plan.output, constraints, plan.session)
-    GpuCheckDeltaInvariant.maybeConvertToGpu(cpuInvariants, rapidsConf) match {
-      case Some(gpuInvariants) =>
-        val gpuPlan = convertToGpu(plan)
-        GpuDeltaInvariantCheckerExec(gpuPlan, gpuInvariants)
-      case None =>
-        val cpuPlan = convertToCpu(plan)
-        DeltaInvariantCheckerExec(cpuPlan, constraints)
-    }
-  }
+  protected def addInvariantChecks(plan: SparkPlan, constraints: Seq[Constraint]): SparkPlan
 
   /** GPU version of convertEmptyToNullIfNeeded */
   private def gpuConvertEmptyToNullIfNeeded(

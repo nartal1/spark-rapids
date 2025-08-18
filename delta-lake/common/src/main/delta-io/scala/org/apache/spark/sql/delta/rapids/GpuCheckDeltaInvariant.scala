@@ -161,7 +161,7 @@ class GpuCheckDeltaInvariantMeta(
     conf: RapidsConf,
     parent: Option[RapidsMeta[_, _, _]],
     rule: DataFromReplacementRule)
-    extends UnaryExprMeta[CheckDeltaInvariant](check, conf, parent, rule) {
+    extends ExprMeta[CheckDeltaInvariant](check, conf, parent, rule) {
 
   override def tagExprForGpu(): Unit = {
     wrapped.constraint match {
@@ -170,10 +170,10 @@ class GpuCheckDeltaInvariantMeta(
     }
   }
 
-  override def convertToGpu(child: Expression): GpuExpression = {
+  override def convertToGpu(): GpuExpression = {
     GpuCheckDeltaInvariant(
-      child,
-      wrapped.columnExtractors,  // leave these on CPU
+      childExprs.head.convertToGpu(),
+      wrapped.columnExtractors.toMap,  // leave these on CPU
       wrapped.constraint)
   }
 }
