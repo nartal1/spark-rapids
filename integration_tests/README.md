@@ -161,6 +161,46 @@ at `$SPARK_HOME`.  It will be very useful to read the contents of the
 [run_pyspark_from_build.sh](run_pyspark_from_build.sh) to get a better insight
 into what is needed as we constantly keep working on to improve and expand the plugin-support.
 
+### Smoke Tests
+
+The integration test framework includes several smoke tests that can be run independently:
+
+- **Spark Shell Smoke Test**: Tests basic functionality using spark-shell
+  ```bash
+  SPARK_SHELL_SMOKE_TEST=1 ./run_pyspark_from_build.sh
+  ```
+
+- **Explain Only CPU Smoke Test**: Tests the explain-only mode on CPU
+  ```bash
+  EXPLAIN_ONLY_CPU_SMOKE_TEST=1 ./run_pyspark_from_build.sh
+  ```
+
+- **Spark Connect Smoke Test**: Tests RAPIDS plugin functionality through Spark Connect (requires Spark 3.4+ and conda environment py3_10)
+  ```bash
+  SPARK_CONNECT_SMOKE_TEST=1 ./run_pyspark_from_build.sh
+  ```
+
+The Spark Connect smoke test automatically:
+- Activates the conda environment `py3_10` for required dependencies
+- Checks Spark version compatibility (3.4+ required)
+- Detects available network interfaces (handles restricted environments)
+- Starts Spark Master and Worker services
+- Launches a Spark Connect server with RAPIDS plugin enabled
+- Executes a test query through the Connect protocol
+- Verifies GPU acceleration (when available)
+
+**Network Requirements:**
+- Requires accessible localhost interface (127.0.0.1, localhost, or network interface)
+- Automatically detects available network configuration
+- Handles Docker containers and CI/CD environments with restricted networking
+- Falls back to primary network interface if localhost is unavailable
+- Cleans up all services and deactivates conda environment on completion or failure
+
+**Prerequisites for Spark Connect tests:**
+- Conda must be installed and available in PATH
+- Conda environment `py3_10` must exist with required Python dependencies
+- Spark 3.4+ installation with Connect support
+
 The python tests run with pytest and the script honors pytest parameters:
 
 - The explicit test specification of specific modules, methods, and their parametrization
