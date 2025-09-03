@@ -25,9 +25,13 @@ import com.nvidia.spark.rapids.lore.GpuLore
 import com.nvidia.spark.rapids.shims.{GpuBatchScanExec, SparkShimImpl}
 
 import org.apache.spark.SparkContext
+// import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
+// import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, AttributeReference, Expression, SortOrder}
+// import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.catalyst.rules.Rule
+// import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.adaptive._
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
@@ -140,6 +144,10 @@ class GpuTransitionOverrides extends Rule[SparkPlan] {
           case other => GpuColumnarToRowExec(other)
         }
       }
+
+    case tcqs: TableCacheQueryStageExec =>
+      // Don't handle TableCacheQueryStageExec here - let the meta class handle it
+      tcqs
 
     case s: ShuffleQueryStageExec =>
       // When reading a materialized shuffle query stage in AQE mode, we need to insert an
@@ -869,6 +877,8 @@ object GpuTransitionOverrides {
         } else {
           sqse.plan
         }
+      case tcqs: TableCacheQueryStageExec =>
+        tcqs.plan
       case _ => plan
     }
   }

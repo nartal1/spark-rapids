@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2024, NVIDIA CORPORATION.
+ * Copyright (c) 2021-2025, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,13 +18,15 @@ package org.apache.spark.sql.rapids
 
 import com.nvidia.spark.ParquetCachedBatchSerializer
 import com.nvidia.spark.rapids.{DataFromReplacementRule, ExecChecks, GpuExec, GpuMetric, RapidsConf, RapidsMeta, SparkPlanMeta}
-import com.nvidia.spark.rapids.shims.ShimLeafExecNode
+import com.nvidia.spark.rapids.shims.{InMemoryTableScanExecLikeShim, ShimLeafExecNode}
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeMap, Expression, SortOrder}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
+import org.apache.spark.sql.catalyst.plans.logical.Statistics
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
+import org.apache.spark.sql.columnar.CachedBatch
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.columnar.{InMemoryRelation, InMemoryTableScanExec}
 import org.apache.spark.sql.internal.{SQLConf, StaticSQLConf}
@@ -76,9 +78,19 @@ class InMemoryTableScanMeta(
 case class GpuInMemoryTableScanExec(
    attributes: Seq[Attribute],
    predicates: Seq[Expression],
-   @transient relation: InMemoryRelation) extends ShimLeafExecNode with GpuExec {
+   @transient relation: InMemoryRelation) extends ShimLeafExecNode with GpuExec with InMemoryTableScanExecLikeShim {
 
   override val nodeName: String = {
+    if (relation.cacheBuilder.tableName.nonEmpty) {
+      println(s"tableName: ${relation.cacheBuilder.tableName}")
+    } else {
+      println("No tableName found")
+    }
+    if (relation.cacheBuilder.cachedName.nonEmpty) {
+      println(s"cachedName: ${relation.cacheBuilder.cachedName}")
+    } else {
+      println("No cachedName found")
+    }
     relation.cacheBuilder.tableName match {
       case Some(_) =>
         "Scan " + relation.cacheBuilder.cachedName
@@ -155,4 +167,7 @@ case class GpuInMemoryTableScanExec(
   protected override def internalDoExecuteColumnar(): RDD[ColumnarBatch] = {
     columnarInputRDD
   }
+
+  // The InMemoryTableScanExecLikeShim interface methods are implemented in the shim
+  // with default implementations that use the relation field
 }

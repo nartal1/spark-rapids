@@ -40,6 +40,43 @@ import org.apache.spark.sql.execution.window.WindowGroupLimitExec
 import org.apache.spark.sql.rapids.execution.python.GpuPythonUDAF
 import org.apache.spark.sql.types.{StringType, StructType}
 
+class TableCacheQueryStageExecMeta(
+    tcqs: TableCacheQueryStageExec,
+    conf: RapidsConf,
+    parent: Option[RapidsMeta[_, _, _]],
+    rule: DataFromReplacementRule)
+    extends SparkPlanMeta[TableCacheQueryStageExec](tcqs, conf, parent, rule) {
+
+  // Expose child plans for tagging but don't modify the TableCacheQueryStageExec
+  // due to Spark's strict validation requirements
+  override val childPlans: Seq[SparkPlanMeta[SparkPlan]] =
+    Seq(GpuOverrides.wrapPlan(tcqs.plan, conf, Some(this)))
+
+  override def tagPlanForGpu(): Unit = {
+    // TableCacheQueryStageExec itself should stay on CPU (following PR #10610)
+    // The wrapped plan will be tagged for GPU but we can't modify the wrapper
+    willNotWorkOnGpu("TableCacheQueryStageExec stays on CPU due to Spark validation requirements")
+  }
+
+  override def convertToGpu(): GpuExec = {
+    throw new IllegalStateException("TableCacheQueryStageExec should not be converted to GPU")
+  }
+
+  override def convertToCpu(): SparkPlan = {
+    // Handle child conversion properly - convert the wrapped plan if possible
+    val convertedChild = childPlans.head.convertIfNeeded()
+    if (convertedChild ne tcqs.plan) {
+      // Child was converted, create new TableCacheQueryStageExec with converted child
+      // Now that our GpuInMemoryTableScanExec implements InMemoryTableScanLike,
+      // this should pass Spark's validation
+      tcqs.copy(plan = convertedChild)
+    } else {
+      // No conversion needed
+      tcqs
+    }
+  }
+}
+
 trait Spark350PlusNonDBShims extends Spark340PlusNonDBShims {
   override def getFileScanRDD(
       sparkSession: SparkSession,
@@ -105,14 +142,10 @@ trait Spark350PlusNonDBShims extends Spark340PlusNonDBShims {
   override def getExecs: Map[Class[_ <: SparkPlan], ExecRule[_ <: SparkPlan]] = {
     val imtsKey = classOf[InMemoryTableScanExec].asSubclass(classOf[SparkPlan])
     // To avoid code duplication we are reusing the rule from GpuOverrides
-    // but we disable it by default
+    // Now enabled since we have proper TableCacheQueryStageExecMeta support
     val imtsRule = GpuOverrides.commonExecs.getOrElse(imtsKey,
         throw new IllegalStateException("InMemoryTableScan should be overridden by default before" +
-        " Spark 3.5.0")).
-      disabledByDefault(
-        """there could be complications when using it with AQE with Spark-3.5.0 and Spark-3.5.1.
-          |For more details please check
-          |https://github.com/NVIDIA/spark-rapids/issues/10603""".stripMargin.replaceAll("\n", " "))
+        " Spark 3.5.0"))
 
     val shimExecs: Map[Class[_ <: SparkPlan], ExecRule[_ <: SparkPlan]] = Seq(
       imtsRule,
@@ -124,7 +157,10 @@ trait Spark350PlusNonDBShims extends Spark340PlusNonDBShims {
             TypeSig.STRUCT + TypeSig.ARRAY + TypeSig.MAP).nested(),
           TypeSig.all),
         (limit, conf, p, r) => new GpuWindowGroupLimitExecMeta(limit, conf, p, r)),
-      GpuOverrides.neverReplaceExec[TableCacheQueryStageExec]("Table cache query stage")
+      GpuOverrides.exec[TableCacheQueryStageExec](
+        "Table cache query stage that wraps InMemoryTableScan for AQE",
+        ExecChecks(TypeSig.all, TypeSig.all),
+        (tcqs, conf, p, r) => new TableCacheQueryStageExecMeta(tcqs, conf, p, r))
     ).map(r => (r.getClassFor.asSubclass(classOf[SparkPlan]), r)).toMap
     super.getExecs ++ shimExecs
   }
