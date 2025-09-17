@@ -1,4 +1,4 @@
-# Copyright (c) 2023-2024, NVIDIA CORPORATION.
+# Copyright (c) 2023-2025, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -167,6 +167,9 @@ __should_add_comment = __is_enabled_attr('if')
 
 # should we move files?
 __should_move_files = __is_enabled_property('shimplify.move')
+
+# force treating per-shim files as shared when adding a new shim
+__force_shared_ = __is_enabled_property('shimplify.force.shared')
 
 # enable log tracing?
 __should_trace = __is_enabled_property('shimplify.trace')
@@ -501,7 +504,10 @@ def __shimplify_layout():
             __log.debug("calling upsert_shim_json on shim_file %s bv_list=%s", shim_file,
                         sorted_build_vers)
             owner_shim = sorted_build_vers[0]
-            if owner_shim in __shims_arr:
+            # if owner_shim in __shims_arr:
+            # Update a file if it belongs to ANY included shim, not only the smallest one
+            should_update_file = any(shim in __shims_arr for shim in sorted_build_vers)
+            if should_update_file:
                 __upsert_shim_json(shim_file, sorted_build_vers)
                 if __should_move_files:
                     __git_rename_or_copy(shim_file, owner_shim)
@@ -538,14 +544,18 @@ def __add_new_shim_to_file_map(files2bv):
             # case 2) otherwise simply add the new buildver to the files2bv[shimfile] mapping
             #
             if shim_file.count("%sspark%s%s" % (os.sep, __add_shim_base, os.sep)) > 1:
-                assert len(bv_list) == 1, "Per-shim file %s is expected to belong to a single "\
-                        "shim, actual shims: %s" % (shim_file, bv_list)
-                new_shim_file = __git_rename_or_copy(shim_file, __add_shim_buildver,
+                if __force_shared_:
+                    if __add_shim_buildver not in bv_list:
+                        bv_list.append(__add_shim_buildver)
+                else:
+                    assert len(bv_list) == 1, "Per-shim file %s is expected to belong to a single "\
+                            "shim, actual shims: %s" % (shim_file, bv_list) 
+                    new_shim_file = __git_rename_or_copy(shim_file, __add_shim_buildver,
                                                      from_shim=__add_shim_base)
-                # schedule new file for comment update
-                __log.info("Adding a per-shim file %s for %s", new_shim_file,
-                           __add_shim_buildver)
-                files2bv[new_shim_file] = [__add_shim_buildver]
+                    # schedule new file for comment update
+                    __log.info("Adding a per-shim file %s for %s", new_shim_file,
+                            __add_shim_buildver)
+                    files2bv[new_shim_file] = [__add_shim_buildver]      
             else:
                 # TODO figure out why __add_shim_buildver is unicode class, not a simple str
                 # and if we care
