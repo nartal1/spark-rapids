@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023, NVIDIA CORPORATION.
+ * Copyright (c) 2022-2025, NVIDIA CORPORATION.
  *
  * This file was derived from CheckDeltaInvariant.scala in the
  * Delta Lake project at https://github.com/delta-io/delta.
@@ -57,8 +57,8 @@ case class GpuCheckDeltaInvariant(
   def withBoundReferences(input: AttributeSeq): GpuCheckDeltaInvariant = {
     GpuCheckDeltaInvariant(
       GpuBindReferences.bindReference(child, input),
-      columnExtractors.map {
-        case (column, extractor) => column -> BindReferences.bindReference(extractor, input)
+      columnExtractors.map { case (column, extractor) =>
+        column -> BindReferences.bindReference(extractor, input)
       },
       constraint)
   }
@@ -120,7 +120,9 @@ case class GpuCheckDeltaInvariant(
       val hostBatch = new ColumnarBatch(filteredHostCols.toArray,
         filteredHostCols(0).getBase.getRowCount.toInt)
       val row = hostBatch.getRow(0)
-      throw DeltaInvariantViolationException(check, columnExtractors.mapValues(_.eval(row)).toMap)
+      throw DeltaInvariantViolationException(
+        check,
+        columnExtractors.view.mapValues(_.eval(row)).toMap)
     }
   }
 }
@@ -161,7 +163,7 @@ class GpuCheckDeltaInvariantMeta(
     conf: RapidsConf,
     parent: Option[RapidsMeta[_, _, _]],
     rule: DataFromReplacementRule)
-    extends UnaryExprMeta[CheckDeltaInvariant](check, conf, parent, rule) {
+    extends ExprMeta[CheckDeltaInvariant](check, conf, parent, rule) {
 
   override def tagExprForGpu(): Unit = {
     wrapped.constraint match {
@@ -170,10 +172,14 @@ class GpuCheckDeltaInvariantMeta(
     }
   }
 
-  override def convertToGpu(child: Expression): GpuExpression = {
+  override def convertToGpu(): GpuExpression = {
+    val child = childExprs.head.convertToGpu()
+    // Delta 4.0 may provide columnExtractors as Seq[(String, Expression)] while older
+    // versions provide Map[String, Expression]. Normalize to Map for GPU version.
+    val colExtractorsAsMap: Map[String, Expression] = wrapped.columnExtractors.toMap
     GpuCheckDeltaInvariant(
       child,
-      wrapped.columnExtractors,  // leave these on CPU
+      colExtractorsAsMap,
       wrapped.constraint)
   }
 }

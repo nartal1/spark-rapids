@@ -27,6 +27,7 @@ import org.apache.hadoop.fs.Path
 
 import org.apache.spark.sql.{DataFrame, SaveMode}
 import org.apache.spark.sql.connector.catalog.{StagingTableCatalog, SupportsWrite}
+import org.apache.spark.sql.rapids.shims.TrampolineConnectShims
 import org.apache.spark.sql.connector.write.V1Write
 import org.apache.spark.sql.delta.{DeltaLog, DeltaOptions, DeltaParquetFileFormat}
 import org.apache.spark.sql.delta.catalog.{DeltaCatalog, DeltaTableV2}
@@ -228,7 +229,7 @@ abstract class DeltaIOProvider extends DeltaProviderImplBase {
     override def toInsertableRelation(): InsertableRelation = {
       new InsertableRelation {
         override def insert(data: DataFrame, overwrite: Boolean): Unit = {
-          val session = data.sparkSession
+          val session = TrampolineConnectShims.getActiveSession
           val deltaLog = writeConfig.deltaLog
 
           // TODO: Get the config from WriteIntoDelta's txn.
