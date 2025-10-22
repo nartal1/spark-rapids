@@ -22,7 +22,7 @@
 package com.nvidia.spark.rapids.delta
 
 import com.databricks.sql.transaction.tahoe.DeltaOptions
-import com.databricks.sql.transaction.tahoe.commands.WriteIntoDeltaEdge
+import com.databricks.sql.transaction.tahoe.commands.{DeleteCommand, DeleteCommandEdge, MergeIntoCommand, MergeIntoCommandEdge, UpdateCommand, UpdateCommandEdge, WriteIntoDeltaEdge}
 import com.databricks.sql.transaction.tahoe.rapids.{GpuDeltaCatalog, GpuDeltaLog, GpuDeltaV1Write, GpuWriteIntoDelta}
 import com.nvidia.spark.rapids._
 import com.nvidia.spark.rapids.delta.shims.DeltaLogShim
@@ -30,12 +30,39 @@ import com.nvidia.spark.rapids.delta.shims.DeltaLogShim
 import org.apache.spark.sql.{DataFrame, SaveMode}
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.connector.write.V1Write
+import org.apache.spark.sql.execution.command.RunnableCommand
 import org.apache.spark.sql.execution.datasources.LogicalRelation
 import org.apache.spark.sql.execution.datasources.v2.{AtomicCreateTableAsSelectExec, AtomicReplaceTableAsSelectExec}
 import org.apache.spark.sql.execution.datasources.v2.rapids.{GpuAtomicCreateTableAsSelectExec, GpuAtomicReplaceTableAsSelectExec}
 import org.apache.spark.sql.sources.InsertableRelation
 
 object DeltaSpark350DB143Provider extends DatabricksDeltaProviderBase {
+
+  // Override to enable Delta 3.3.0 functionality for Databricks 14.3
+  // This shim is based on Delta 3.3.0, so we enable Delete, Update, and Merge operations
+  override def getRunnableCommandRules: Map[Class[_ <: RunnableCommand],
+      RunnableCommandRule[_ <: RunnableCommand]] = {
+    Seq(
+      GpuOverrides.runnableCmd[DeleteCommand](
+        "Delete rows from a Delta Lake table",
+        (a, conf, p, r) => new DeleteCommandMeta(a, conf, p, r)),
+      GpuOverrides.runnableCmd[DeleteCommandEdge](
+        "Delete rows from a Delta Lake table",
+        (a, conf, p, r) => new DeleteCommandEdgeMeta(a, conf, p, r)),
+      GpuOverrides.runnableCmd[MergeIntoCommand](
+        "Merge of a source query/table into a Delta table",
+        (a, conf, p, r) => new MergeIntoCommandMeta(a, conf, p, r)),
+      GpuOverrides.runnableCmd[MergeIntoCommandEdge](
+        "Merge of a source query/table into a Delta table",
+        (a, conf, p, r) => new MergeIntoCommandEdgeMeta(a, conf, p, r)),
+      GpuOverrides.runnableCmd[UpdateCommand](
+        "Update rows in a Delta Lake table",
+        (a, conf, p, r) => new UpdateCommandMeta(a, conf, p, r)),
+      GpuOverrides.runnableCmd[UpdateCommandEdge](
+        "Update rows in a Delta Lake table",
+        (a, conf, p, r) => new UpdateCommandEdgeMeta(a, conf, p, r))
+    ).map(r => (r.getClassFor.asSubclass(classOf[RunnableCommand]), r)).toMap
+  }
 
   override protected def toGpuWrite(
      writeConfig: DeltaWriteV1Config,
