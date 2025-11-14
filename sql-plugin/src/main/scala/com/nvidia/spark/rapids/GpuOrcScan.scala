@@ -2890,9 +2890,36 @@ object MakeOrcTableProducer extends Logging {
             s"but read ${table.getNumberOfColumns} from ${splits.mkString("; ")}")
         }
       }
+      
+      // DEBUG: Check boolean column immediately after Table.readORC()
+      System.err.println(s"========== [ORC-DEBUG-NON-CHUNKED] After Table.readORC: ${table.getNumberOfColumns} columns, ${table.getRowCount} rows ==========")
+      (0 until table.getNumberOfColumns).foreach { i =>
+        val col = table.getColumn(i)
+        System.err.println(s"[ORC-DEBUG] Column $i: type=${col.getType}, rows=${col.getRowCount}")
+        if (col.getType == DType.BOOL8) {
+          val trueCount = withResource(col.castTo(DType.INT32)) { asInt =>
+            withResource(asInt.sum()) { sum => sum.getInt }
+          }
+          System.err.println(s"========== [ORC-DEBUG] Column $i (BOOL8) AFTER Table.readORC: $trueCount TRUE values (expected 334) ==========")
+        }
+      }
+      
       metrics(NUM_OUTPUT_BATCHES) += 1
       val evolvedSchemaTable = SchemaUtils.evolveSchemaIfNeededAndClose(table, tableSchema,
         readDataSchema, isSchemaCaseSensitive, Some(GpuOrcScan.castColumnTo))
+      
+      // DEBUG: Check boolean column after schema evolution
+      System.err.println(s"[ORC-DEBUG] After evolveSchema: ${evolvedSchemaTable.getNumberOfColumns} columns")
+      (0 until evolvedSchemaTable.getNumberOfColumns).foreach { i =>
+        val col = evolvedSchemaTable.getColumn(i)
+        if (col.getType == DType.BOOL8) {
+          val trueCount = withResource(col.castTo(DType.INT32)) { asInt =>
+            withResource(asInt.sum()) { sum => sum.getInt }
+          }
+          System.err.println(s"========== [ORC-DEBUG] Column $i (BOOL8) AFTER evolveSchema: $trueCount TRUE values ==========")
+        }
+      }
+      
       val rebasedTimeZone = GpuOrcTimezoneUtils.rebaseTimeZone(evolvedSchemaTable)
       // Rebase the timestamp columns (if it has) to JVM default timezone as Spark does.
       new SingleGpuDataProducer(rebasedTimeZone)
@@ -2947,11 +2974,52 @@ case class OrcTableReader(
           s"but read ${table.getNumberOfColumns} from $splitsString")
       }
     }
+    
+    // DEBUG: Check boolean column immediately after readChunk() (CHUNKED READER PATH)
+    System.err.println(s"========== [ORC-DEBUG-CHUNKED] After readChunk: ${table.getNumberOfColumns} columns, ${table.getRowCount} rows ==========")
+    (0 until table.getNumberOfColumns).foreach { i =>
+      val col = table.getColumn(i)
+      System.err.println(s"[ORC-DEBUG-CHUNKED] Column $i: type=${col.getType}, rows=${col.getRowCount}")
+      if (col.getType == DType.BOOL8) {
+        val trueCount = withResource(col.castTo(DType.INT32)) { asInt =>
+          withResource(asInt.sum()) { sum => sum.getInt }
+        }
+        System.err.println(s"========== [ORC-DEBUG-CHUNKED] Column $i (BOOL8) AFTER readChunk: $trueCount TRUE values ==========")
+      }
+    }
+    
     metrics(NUM_OUTPUT_BATCHES) += 1
     val evolvedSchemaTable = SchemaUtils.evolveSchemaIfNeededAndClose(table, tableSchema,
       readDataSchema, isSchemaCaseSensitive, Some(GpuOrcScan.castColumnTo))
+    
+    // DEBUG: Check boolean column after schema evolution (CHUNKED READER PATH)
+    System.err.println(s"[ORC-DEBUG-CHUNKED] After evolveSchema: ${evolvedSchemaTable.getNumberOfColumns} columns")
+    (0 until evolvedSchemaTable.getNumberOfColumns).foreach { i =>
+      val col = evolvedSchemaTable.getColumn(i)
+      if (col.getType == DType.BOOL8) {
+        val trueCount = withResource(col.castTo(DType.INT32)) { asInt =>
+          withResource(asInt.sum()) { sum => sum.getInt }
+        }
+        System.err.println(s"========== [ORC-DEBUG-CHUNKED] Column $i (BOOL8) AFTER evolveSchema: $trueCount TRUE values ==========")
+      }
+    }
+    
     // Rebase the timestamp columns (if it has) to JVM default timezone as Spark does.
-    GpuOrcTimezoneUtils.rebaseTimeZone(evolvedSchemaTable)
+    val rebasedTable = GpuOrcTimezoneUtils.rebaseTimeZone(evolvedSchemaTable)
+    
+    // DEBUG: Check boolean column after timezone rebase (CHUNKED READER PATH)
+    System.err.println(s"[ORC-DEBUG-CHUNKED] After rebaseTimeZone: ${rebasedTable.getNumberOfColumns} columns")
+    (0 until rebasedTable.getNumberOfColumns).foreach { i =>
+      val col = rebasedTable.getColumn(i)
+      if (col.getType == DType.BOOL8) {
+        val trueCount = withResource(col.castTo(DType.INT32)) { asInt =>
+          withResource(asInt.sum()) { sum => sum.getInt }
+        }
+        System.err.println(s"========== [ORC-DEBUG-CHUNKED] Column $i (BOOL8) AFTER rebaseTimeZone: $trueCount TRUE values ==========")
+      }
+    }
+    
+    rebasedTable
   }
 
   override def close(): Unit = {
