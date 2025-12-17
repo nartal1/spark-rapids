@@ -737,6 +737,29 @@
                 --><!-- #endif scala-2.13 -->
             </modules>
         </profile>
+        <profile>
+            <!-- Databricks 17.3 (Spark 4.0.0) -->
+            <id>release400db173</id>
+            <activation>
+                <property>
+                    <name>buildver</name>
+                    <value>400db173</value>
+                </property>
+            </activation>
+            <properties>
+                <spark.version.classifier>spark400db173</spark.version.classifier>
+                <spark.version>${spark400db173.version}</spark.version>
+                <spark.test.version>${spark400db173.version}</spark.test.version>
+                <hadoop.client.version>3.3.1</hadoop.client.version>
+                <rat.consoleOutput>true</rat.consoleOutput>
+                <parquet.hadoop.version>1.13.1</parquet.hadoop.version>
+                <rapids.delta.artifactId1>rapids-4-spark-delta-spark400db173</rapids.delta.artifactId1>
+            </properties>
+            <modules>
+                <module>shim-deps/databricks</module>
+                <module>delta-lake/delta-spark400db173</module>
+            </modules>
+        </profile>
 	<!-- #if scala-2.13 --><!--
         <profile>
             <id>release400</id>
@@ -970,6 +993,7 @@
         <spark356.version>3.5.6</spark356.version>
         <spark357.version>3.5.7</spark357.version>
         <spark400.version>4.0.0</spark400.version>
+        <spark400db173.version>4.0.0-databricks-173</spark400db173.version>
         <spark401.version>4.0.1</spark401.version>
         <mockito.version>3.12.4</mockito.version>
         <!-- same as Apache Spark 4.0.0 for Scala 2.13 except for cloudera shims -->

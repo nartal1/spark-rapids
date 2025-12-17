@@ -783,7 +783,7 @@ case class GpuMapFromEntries(child: Expression) extends GpuUnaryExpression with 
     GpuMapUtils.assertNoNullKeys(inputBase)
     
     // Handle duplicate keys based on the policy
-    mapKeyDedupPolicy.toUpperCase match {
+    mapKeyDedupPolicy.toString.toUpperCase match {
       case "EXCEPTION" =>
         // Check if there are any duplicate keys
         withResource(inputBase.dropListDuplicatesWithKeysValues()) { deduped =>

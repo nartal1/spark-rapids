@@ -77,9 +77,43 @@ class ProxyRapidsShuffleInternalManagerBase(
       endPartition: Int,
       context: TaskContext,
       metrics: ShuffleReadMetricsReporter): ShuffleReader[K, C] = {
-    realImpl.getReader(handle,
-      startMapIndex, endMapIndex, startPartition, endPartition,
-      context, metrics)
+    // Try to call with prismMapStatusEnabled parameter if it exists (Databricks 17.3+)
+    // Otherwise fall back to version without it
+    try {
+      val method = realImpl.getClass.getMethod("getReader",
+        classOf[ShuffleHandle], classOf[Int], classOf[Int], classOf[Int], classOf[Int],
+        classOf[TaskContext], classOf[ShuffleReadMetricsReporter], classOf[Boolean])
+      method.invoke(realImpl, handle, startMapIndex: Integer, endMapIndex: Integer,
+        startPartition: Integer, endPartition: Integer, context, metrics,
+        false: java.lang.Boolean).asInstanceOf[ShuffleReader[K, C]]
+    } catch {
+      case _: NoSuchMethodException =>
+        // Fall back to 7-parameter version for older Spark versions
+        val method7 = realImpl.getClass.getMethod("getReader",
+          classOf[ShuffleHandle], classOf[Int], classOf[Int], classOf[Int], classOf[Int],
+          classOf[TaskContext], classOf[ShuffleReadMetricsReporter])
+        method7.invoke(realImpl, handle, startMapIndex: Integer, endMapIndex: Integer,
+          startPartition: Integer, endPartition: Integer, context, metrics).asInstanceOf[ShuffleReader[K, C]]
+    }
+  }
+
+  // Databricks 17.3 adds prismMapStatusEnabled parameter - 8 parameter version
+  def getReader[K, C](
+      handle: ShuffleHandle,
+      startMapIndex: Int,
+      endMapIndex: Int,
+      startPartition: Int,
+      endPartition: Int,
+      context: TaskContext,
+      metrics: ShuffleReadMetricsReporter,
+      prismMapStatusEnabled: Boolean): ShuffleReader[K, C] = {
+    // Call the 8-parameter version (Databricks 17.3+)
+    val method = realImpl.getClass.getMethod("getReader",
+      classOf[ShuffleHandle], classOf[Int], classOf[Int], classOf[Int], classOf[Int],
+      classOf[TaskContext], classOf[ShuffleReadMetricsReporter], classOf[Boolean])
+    method.invoke(realImpl, handle, startMapIndex: Integer, endMapIndex: Integer,
+      startPartition: Integer, endPartition: Integer, context, metrics,
+      prismMapStatusEnabled: java.lang.Boolean).asInstanceOf[ShuffleReader[K, C]]
   }
 
   def registerShuffle[K, V, C](

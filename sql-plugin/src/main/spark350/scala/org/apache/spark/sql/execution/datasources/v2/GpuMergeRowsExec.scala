@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+
 /*** spark-rapids-shim-json-lines
 {"spark": "350"}
 {"spark": "351"}
@@ -24,9 +25,9 @@
 {"spark": "356"}
 {"spark": "357"}
 {"spark": "400"}
+{"spark": "400db173"}
 {"spark": "401"}
 spark-rapids-shim-json-lines ***/
-
 package org.apache.spark.sql.execution.datasources.v2
 
 import scala.annotation.tailrec
