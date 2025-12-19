@@ -35,7 +35,6 @@ import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
 import org.apache.spark.sql.execution.command.{DataWritingCommand, RunnableCommand}
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
 import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, BroadcastNestedLoopJoinExec}
-import org.apache.spark.sql.execution.python.AggregateInPandasExec
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.rapids.TimeZoneDB
 import org.apache.spark.sql.rapids.aggregate.{CpuToGpuAggregateBufferConverter, GpuToCpuAggregateBufferConverter}
@@ -986,8 +985,8 @@ object ExpressionContext {
     parent.get.wrapped match {
       case agg: SparkPlan if SparkShimImpl.isWindowFunctionExec(agg) =>
         WindowAggExprContext
-      case agg: AggregateInPandasExec =>
-        if (agg.groupingExpressions.isEmpty) {
+      case agg: SparkPlan if SparkShimImpl.isAggregateInPandasExec(agg) =>
+        if (SparkShimImpl.getAggregateInPandasExecGroupingExpressions(agg).isEmpty) {
           ReductionAggExprContext
         } else {
           GroupByAggExprContext

@@ -17,6 +17,7 @@
 /*** spark-rapids-shim-json-lines
 {"spark": "341db"}
 {"spark": "350db143"}
+{"spark": "400db173"}
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
@@ -108,9 +109,9 @@ trait Spark341PlusDBShims extends Spark332PlusDBShims {
         (takeExec, conf, p, r) =>
           new SparkPlanMeta[TakeOrderedAndProjectExec](takeExec, conf, p, r) {
             val sortOrder: Seq[BaseExprMeta[SortOrder]] =
-              takeExec.sortOrder.map(GpuOverrides.wrapExpr(_, conf, Some(this)))
+              takeExec.sortOrder.map(GpuOverrides.wrapExpr(_, this.conf, Some(this)))
             val projectList: Seq[BaseExprMeta[NamedExpression]] =
-              takeExec.projectList.map(GpuOverrides.wrapExpr(_, conf, Some(this)))
+              takeExec.projectList.map(GpuOverrides.wrapExpr(_, this.conf, Some(this)))
             override val childExprs: Seq[BaseExprMeta[_]] = sortOrder ++ projectList
 
             override def convertToGpu(): GpuExec = {
@@ -203,7 +204,7 @@ trait Spark341PlusDBShims extends Spark332PlusDBShims {
   override def checkCToRWithExecBroadcastAQECoalPart(p: SparkPlan,
       parent: Option[SparkPlan]): Boolean = {
     p match {
-      case ColumnarToRowExec(AQEShuffleReadExec(_: ShuffleQueryStageExec, _, _)) =>
+      case ColumnarToRowExec(AQEShuffleReadExec(_: ShuffleQueryStageExec, _, _, _)) =>
         parent match {
           case Some(bhje: BroadcastHashJoinExec) if bhje.isExecutorBroadcast => true
           case Some(bhnlj: BroadcastNestedLoopJoinExec) if bhnlj.isExecutorBroadcast => true
@@ -221,7 +222,7 @@ trait Spark341PlusDBShims extends Spark332PlusDBShims {
    */
   override def getShuffleFromCToRWithExecBroadcastAQECoalPart(p: SparkPlan): Option[SparkPlan] = {
     p match {
-      case ColumnarToRowExec(AQEShuffleReadExec(s: ShuffleQueryStageExec, _, _)) => Some(s)
+      case ColumnarToRowExec(AQEShuffleReadExec(s: ShuffleQueryStageExec, _, _, _)) => Some(s)
       case _ => None
     }
   }

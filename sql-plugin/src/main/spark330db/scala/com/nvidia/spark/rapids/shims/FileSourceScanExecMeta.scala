@@ -19,6 +19,7 @@
 {"spark": "332db"}
 {"spark": "341db"}
 {"spark": "350db143"}
+{"spark": "400db173"}
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
@@ -90,7 +91,7 @@ class FileSourceScanExecMeta(plan: FileSourceScanExec,
   private def convertDynamicPruningFilters(filters: Seq[Expression]): Seq[Expression] = {
     filters.map { filter =>
       filter.transformDown {
-        case dpe @ DynamicPruningExpression(inSub: InSubqueryExec) =>
+        case dpe @ DynamicPruningShims(inSub: InSubqueryExec) =>
           inSub.plan match {
             case bc: SubqueryBroadcastExec =>
               dpe.copy(inSub.copy(plan = convertBroadcast(bc)))

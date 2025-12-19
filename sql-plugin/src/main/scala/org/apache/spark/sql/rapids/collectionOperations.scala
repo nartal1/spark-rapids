@@ -27,7 +27,7 @@ import com.nvidia.spark.rapids.BoolUtils.isAllValidTrue
 import com.nvidia.spark.rapids.GpuListUtils
 import com.nvidia.spark.rapids.RapidsPluginImplicits._
 import com.nvidia.spark.rapids.jni.GpuListSliceUtils
-import com.nvidia.spark.rapids.shims.{GetSequenceSize, NullIntolerantShim, ShimExpression}
+import com.nvidia.spark.rapids.shims.{GetSequenceSize, NullIntolerantShim, ShimExpression, SQLConfShims}
 
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, TypeCoercion}
 import org.apache.spark.sql.catalyst.expressions.{ElementAt, ExpectsInputTypes, Expression, ImplicitCastInputTypes, NamedExpression, RowOrdering, Sequence, TimeZoneAwareExpression}
@@ -735,7 +735,7 @@ case class GpuMapEntries(child: Expression) extends GpuUnaryExpression with Expe
 
 case class GpuMapFromEntries(child: Expression) extends GpuUnaryExpression with ExpectsInputTypes {
 
-  private val mapKeyDedupPolicy = SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)
+  private val mapKeyDedupPolicy = SQLConfShims.getMapKeyDedupPolicyUpperCase(SQLConf.get)
 
   override def inputTypes: Seq[AbstractDataType] = Seq(ArrayType)
 
@@ -783,7 +783,7 @@ case class GpuMapFromEntries(child: Expression) extends GpuUnaryExpression with 
     GpuMapUtils.assertNoNullKeys(inputBase)
     
     // Handle duplicate keys based on the policy
-    mapKeyDedupPolicy.toUpperCase match {
+    mapKeyDedupPolicy match {
       case "EXCEPTION" =>
         // Check if there are any duplicate keys
         withResource(inputBase.dropListDuplicatesWithKeysValues()) { deduped =>
@@ -1518,7 +1518,7 @@ case class GpuArraysOverlap(left: Expression, right: Expression)
 
 case class GpuMapFromArrays(left: Expression, right: Expression) extends GpuBinaryExpression {
 
-  private val mapKeyDedupPolicy = SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY)
+  private val mapKeyDedupPolicy = SQLConfShims.getMapKeyDedupPolicyUpperCase(SQLConf.get)
 
   override def dataType: MapType = {
     MapType(

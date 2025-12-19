@@ -1466,14 +1466,30 @@ class RapidsShuffleInternalManagerBase(conf: SparkConf, val isDriver: Boolean)
               numReaderThreads = rapidsConf.shuffleMultiThreadedReaderThreads)
           case _ =>
             val shuffleHandle = RapidsShuffleInternalManagerBase.unwrapHandle(other)
-            wrapped.getReader(shuffleHandle, startMapIndex, endMapIndex, startPartition,
+            getWrappedReader(shuffleHandle, startMapIndex, endMapIndex, startPartition,
               endPartition, context, metrics)
         }
       case other =>
         val shuffleHandle = RapidsShuffleInternalManagerBase.unwrapHandle(other)
-        wrapped.getReader(shuffleHandle, startMapIndex, endMapIndex, startPartition,
+        getWrappedReader(shuffleHandle, startMapIndex, endMapIndex, startPartition,
           endPartition, context, metrics)
     }
+  }
+
+  /**
+   * Shimmed method to call wrapped.getReader with the appropriate signature.
+   * This is overridden in version-specific shims when the signature changes.
+   */
+  protected def getWrappedReader[K, C](
+      handle: ShuffleHandle,
+      startMapIndex: Int,
+      endMapIndex: Int,
+      startPartition: Int,
+      endPartition: Int,
+      context: TaskContext,
+      metrics: ShuffleReadMetricsReporter): ShuffleReader[K, C] = {
+    ShuffleManagerShims.getReader(wrapped, handle, startMapIndex, endMapIndex,
+      startPartition, endPartition, context, metrics)
   }
 
   def registerGpuShuffle(shuffleId: Int): Unit = {

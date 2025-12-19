@@ -20,6 +20,7 @@
 {"spark": "350"}
 {"spark": "350db143"}
 {"spark": "351"}
+{"spark": "400db173"}
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.sql.hive.rapids.shims
 
@@ -33,6 +34,7 @@ object GpuRowBasedHiveGenericUDFShim {
       childRowAccessors: Array[SpecializedGetters => Any],
       idx: Int,
       childrenRow: InternalRow): Unit = {
-    o.set(childRowAccessors(idx)(childrenRow))
+    // DB 17.3 expects by-name parameter (() => Any)
+    o.set(() => childRowAccessors(idx)(childrenRow))
   }
 }

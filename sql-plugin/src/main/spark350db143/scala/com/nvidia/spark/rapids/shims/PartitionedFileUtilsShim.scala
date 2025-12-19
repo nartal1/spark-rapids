@@ -17,6 +17,7 @@
 
 /*** spark-rapids-shim-json-lines
 {"spark": "350db143"}
+{"spark": "400db173"}
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
@@ -32,7 +33,7 @@ object PartitionedFileUtilsShim extends PartitionedFileUtilsShimBase {
                  isSplitable: Boolean,
                  maxSplitBytes: Long,
                  partitionValues: InternalRow): Seq[PartitionedFile] = {
-    PartitionedFileUtil.splitFiles(file, isSplitable, maxSplitBytes, partitionValues)
+    PartitionedFileUtil.splitFiles(file, file.getPath, isSplitable, maxSplitBytes, partitionValues)
   }
 
 } // object PartitionFileUtilsShim;

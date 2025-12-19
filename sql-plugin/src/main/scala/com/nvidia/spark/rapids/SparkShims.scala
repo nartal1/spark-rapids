@@ -62,6 +62,10 @@ trait SparkShims {
     dateTimeRebaseModeFromConf: String): ParquetFilters
 
   def isWindowFunctionExec(plan: SparkPlan): Boolean
+
+  def isAggregateInPandasExec(plan: SparkPlan): Boolean
+
+  def getAggregateInPandasExecGroupingExpressions(plan: SparkPlan): Seq[Expression]
   def getExprs: Map[Class[_ <: Expression], ExprRule[_ <: Expression]]
   def getExecs: Map[Class[_ <: SparkPlan], ExecRule[_ <: SparkPlan]]
   def getScans: Map[Class[_ <: Scan], ScanRule[_ <: Scan]]

@@ -17,12 +17,14 @@
 /*** spark-rapids-shim-json-lines
 {"spark": "350db143"}
 {"spark": "400"}
+{"spark": "400db173"}
 {"spark": "401"}
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
 import com.google.common.base.Objects
 import com.nvidia.spark.rapids.GpuScan
+import com.nvidia.spark.rapids.shims.StoragePartitionJoinShims
 
 import org.apache.spark.SparkException
 import org.apache.spark.rdd.RDD
@@ -34,7 +36,7 @@ import org.apache.spark.sql.catalyst.util.{truncatedString, InternalRowComparabl
 import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.execution.datasources.rapids.DataSourceStrategyUtils
-import org.apache.spark.sql.execution.datasources.v2.{DataSourceRDD, StoragePartitionJoinParams}
+import org.apache.spark.sql.execution.datasources.v2.DataSourceRDD
 
 case class GpuBatchScanExec(
     output: Seq[AttributeReference],
@@ -42,7 +44,7 @@ case class GpuBatchScanExec(
     runtimeFilters: Seq[Expression] = Seq.empty,
     ordering: Option[Seq[SortOrder]] = None,
     @transient table: Table,
-    spjParams: StoragePartitionJoinParams = StoragePartitionJoinParams()
+    spjParams: StoragePartitionJoinShims.SpjParams = StoragePartitionJoinShims.default()
   ) extends GpuBatchScanExecBase(scan, runtimeFilters) {
 
   @transient override lazy val batch: Batch = if (scan == null) null else scan.toBatch
@@ -63,7 +65,7 @@ case class GpuBatchScanExec(
 
   @transient override protected lazy val filteredPartitions: Seq[Seq[InputPartition]] = {
     val dataSourceFilters = runtimeFilters.flatMap {
-      case DynamicPruningExpression(e) => DataSourceStrategyUtils.translateRuntimeFilter(e)
+      case DynamicPruningShims(e) => DataSourceStrategyUtils.translateRuntimeFilter(e)
       case _ => None
     }
 

@@ -46,12 +46,14 @@
 {"spark": "356"}
 {"spark": "357"}
 {"spark": "400"}
+{"spark": "400db173"}
 {"spark": "401"}
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
 import com.nvidia.spark.rapids._
 import com.nvidia.spark.rapids.GpuOverrides.exec
+import com.nvidia.spark.rapids.shims.AggregateInPandasExecShims
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.{InternalRow, TableIdentifier}
@@ -86,9 +88,9 @@ import org.apache.spark.unsafe.types.CalendarInterval
 /**
  * Shim base class that can be compiled with every supported 3.2.0+
  */
-trait Spark320PlusShims extends SparkShims with RebaseShims with Logging {
+trait Spark320PlusShims extends SparkShims with RebaseShims with WindowInPandasShims
+    with AggregateInPandasShims with Logging {
 
-  def getWindowExpressions(winPy: WindowInPandasExec): Seq[NamedExpression]
 
   override final def aqeShuffleReaderExec: ExecRule[_ <: SparkPlan] = exec[AQEShuffleReadExec](
     "A wrapper of shuffle query stage",
@@ -285,30 +287,10 @@ trait Spark320PlusShims extends SparkShims with RebaseShims with Logging {
           TypeSig.STRUCT + TypeSig.MAP + TypeSig.ARRAY + TypeSig.BINARY +
           GpuTypeShims.additionalCommonOperatorSupportedTypes).nested(),
           TypeSig.all),
-        (p, conf, parent, r) => new OverwriteByExpressionExecV1Meta(p, conf, parent, r)),
-      exec[WindowInPandasExec](
-        "The backend for Window Aggregation Pandas UDF, Accelerates the data transfer between" +
-          " the Java process and the Python process. It also supports scheduling GPU resources" +
-          " for the Python process when enabled. For now it only supports row based window frame.",
-        ExecChecks(
-          (TypeSig.commonCudfTypes + TypeSig.ARRAY).nested(TypeSig.commonCudfTypes),
-          TypeSig.all),
-        (winPy, conf, p, r) => new GpuWindowInPandasExecMetaBase(winPy, conf, p, r) {
-          override val windowExpressions: Seq[BaseExprMeta[NamedExpression]] =
-            getWindowExpressions(winPy).map(GpuOverrides.wrapExpr(_, this.conf, Some(this)))
-
-          override def convertToGpu(): GpuExec = {
-            GpuWindowInPandasExec(
-              windowExpressions.map(_.convertToGpu()),
-              partitionSpec.map(_.convertToGpu()),
-              // leave ordering expression on the CPU, it's not used for GPU computation
-              winPy.orderSpec,
-              childPlans.head.convertIfNeeded()
-            )(winPy.partitionSpec)
-          }
-        }).disabledByDefault("it only supports row based frame for now")
+        (p, conf, parent, r) => new OverwriteByExpressionExecV1Meta(p, conf, parent, r))
+      // WindowInPandasExec moved to WindowInPandasExecShims to handle version differences
     ).map(r => (r.getClassFor.asSubclass(classOf[SparkPlan]), r)).toMap
-    maps ++ ScanExecShims.execs
+    maps ++ ScanExecShims.execs ++ WindowInPandasExecShims.execs
   }
 
   override def getScans: Map[Class[_ <: Scan], ScanRule[_ <: Scan]] = Seq(
