@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2021-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,6 +46,7 @@
 {"spark": "356"}
 {"spark": "357"}
 {"spark": "400"}
+{"spark": "400db173"}
 {"spark": "401"}
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.rapids.shims
@@ -57,6 +58,7 @@ import org.apache.spark.shuffle.ShuffleReader
 import org.apache.spark.sql.execution.{CoalescedMapperPartitionSpec, CoalescedPartitionSpec, PartialMapperPartitionSpec, PartialReducerPartitionSpec}
 import org.apache.spark.sql.execution.metric.SQLShuffleReadMetricsReporter
 import org.apache.spark.sql.rapids.execution.ShuffledBatchRDDPartition
+import org.apache.spark.sql.rapids.ShuffleManagerShims
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.storage.{BlockId, BlockManagerId}
 
@@ -118,7 +120,8 @@ object ShuffledBatchRDDUtil {
           endReducerIndex)
         (reader, getPartitionSize(blocksByAddress))
       case PartialReducerPartitionSpec(reducerIndex, startMapIndex, endMapIndex, _) =>
-        val reader = SparkEnv.get.shuffleManager.getReader(
+        val reader = ShuffleManagerShims.getReader(
+          SparkEnv.get.shuffleManager,
           dependency.shuffleHandle,
           startMapIndex,
           endMapIndex,
@@ -134,7 +137,8 @@ object ShuffledBatchRDDUtil {
           reducerIndex + 1)
         (reader, getPartitionSize(blocksByAddress))
       case PartialMapperPartitionSpec(mapIndex, startReducerIndex, endReducerIndex) =>
-        val reader = SparkEnv.get.shuffleManager.getReader(
+        val reader = ShuffleManagerShims.getReader(
+          SparkEnv.get.shuffleManager,
           dependency.shuffleHandle,
           mapIndex,
           mapIndex + 1,
@@ -150,7 +154,8 @@ object ShuffledBatchRDDUtil {
           endReducerIndex)
         (reader, getPartitionSize(blocksByAddress))
       case CoalescedMapperPartitionSpec(startMapIndex, endMapIndex, numReducers) =>
-        val reader = SparkEnv.get.shuffleManager.getReader(
+        val reader = ShuffleManagerShims.getReader(
+          SparkEnv.get.shuffleManager,
           dependency.shuffleHandle,
           startMapIndex,
           endMapIndex,

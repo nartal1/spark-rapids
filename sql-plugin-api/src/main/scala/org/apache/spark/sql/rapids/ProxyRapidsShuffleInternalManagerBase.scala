@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -77,9 +77,28 @@ class ProxyRapidsShuffleInternalManagerBase(
       endPartition: Int,
       context: TaskContext,
       metrics: ShuffleReadMetricsReporter): ShuffleReader[K, C] = {
-    realImpl.getReader(handle,
-      startMapIndex, endMapIndex, startPartition, endPartition,
-      context, metrics)
+    // For Databricks 17.3+, we need to call with prismMapStatusEnabled parameter
+    // Default to false for backwards compatibility
+    getReader(handle, startMapIndex, endMapIndex, startPartition, endPartition,
+      context, metrics, false)
+  }
+
+  /**
+   * Databricks 17.3+ added prismMapStatusEnabled parameter.
+   * This method provides compatibility with that version.
+   */
+  def getReader[K, C](
+      handle: ShuffleHandle,
+      startMapIndex: Int,
+      endMapIndex: Int,
+      startPartition: Int,
+      endPartition: Int,
+      context: TaskContext,
+      metrics: ShuffleReadMetricsReporter,
+      prismMapStatusEnabled: Boolean): ShuffleReader[K, C] = {
+    // Call realImpl with the prismMapStatusEnabled parameter
+    realImpl.getReader(handle, startMapIndex, endMapIndex, startPartition, endPartition,
+      context, metrics, prismMapStatusEnabled)
   }
 
   def registerShuffle[K, V, C](

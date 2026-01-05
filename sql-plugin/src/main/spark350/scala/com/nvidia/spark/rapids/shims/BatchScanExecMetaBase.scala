@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@
 {"spark": "356"}
 {"spark": "357"}
 {"spark": "400"}
+{"spark": "400db173"}
 {"spark": "401"}
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
@@ -54,7 +55,7 @@ abstract class BatchScanExecMetaBase(p: BatchScanExec,
     }
     wrapped.runtimeFilters.map { filter =>
       filter.transformDown {
-        case dpe @ DynamicPruningExpression(inSub: InSubqueryExec) =>
+        case dpe @ DynamicPruningShims(inSub: InSubqueryExec) =>
           inSub.plan match {
             case bc: SubqueryBroadcastExec =>
               dpe.copy(inSub.copy(plan = convertBroadcast(bc)))
