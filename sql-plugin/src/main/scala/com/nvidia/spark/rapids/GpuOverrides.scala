@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2019-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -70,7 +70,8 @@ import org.apache.spark.sql.rapids.catalyst.expressions.GpuRand
 import org.apache.spark.sql.rapids.execution._
 import org.apache.spark.sql.rapids.execution.python._
 import org.apache.spark.sql.rapids.execution.python.GpuFlatMapGroupsInPandasExecMeta
-import org.apache.spark.sql.rapids.shims.{GpuAscii, GpuMapInPandasExecMeta, GpuTimeAdd}
+import com.nvidia.spark.rapids.shims.{AggregateInPandasExecShims, ShowNamespacesExecShims}
+import org.apache.spark.sql.rapids.shims.{GpuAscii, GpuMapInPandasExecMeta}
 import org.apache.spark.sql.rapids.zorder.ZOrderRules
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
@@ -1728,26 +1729,6 @@ object GpuOverrides extends Logging {
           GpuDateDiff(lhs, rhs)
         }
     }),
-    expr[TimeAdd](
-      "Adds interval to timestamp",
-      ExprChecks.binaryProject(TypeSig.TIMESTAMP, TypeSig.TIMESTAMP,
-        ("start", TypeSig.TIMESTAMP, TypeSig.TIMESTAMP),
-        ("interval", TypeSig.lit(TypeEnum.CALENDAR)
-          .withPsNote(TypeEnum.CALENDAR, "month intervals are not supported"),
-          TypeSig.CALENDAR)),
-      (timeAdd, conf, p, r) => new BinaryExprMeta[TimeAdd](timeAdd, conf, p, r) {
-        override def tagExprForGpu(): Unit = {
-          GpuOverrides.extractLit(timeAdd.interval).foreach { lit =>
-            val intvl = lit.value.asInstanceOf[CalendarInterval]
-            if (intvl.months != 0) {
-              willNotWorkOnGpu("interval months isn't supported")
-            }
-          }
-        }
-
-        override def convertToGpu(lhs: Expression, rhs: Expression): GpuExpression =
-          GpuTimeAdd(lhs, rhs)
-    }),
     expr[DateAddInterval](
       "Adds interval to date",
       ExprChecks.binaryProject(TypeSig.DATE, TypeSig.DATE,
@@ -2726,7 +2707,7 @@ object GpuOverrides extends Logging {
         TypeSig.ARRAY.nested(TypeSig.all)),
       (in, conf, p, r) => new UnaryExprMeta[MapFromEntries](in, conf, p, r) {
         override def tagExprForGpu(): Unit = {
-          SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY).toUpperCase match {
+          SQLConfShims.getMapKeyDedupPolicyUpperCase(SQLConf.get) match {
             case "EXCEPTION" | "LAST_WIN" => // Good we can support this
             case other =>
               willNotWorkOnGpu(s"$other is not supported for config setting" +
@@ -3122,7 +3103,7 @@ object GpuOverrides extends Logging {
             TypeSig.all - TypeSig.MAP.nested()))),
       (in, conf, p, r) => new ExprMeta[TransformKeys](in, conf, p, r) {
         override def tagExprForGpu(): Unit = {
-          SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY).toUpperCase match {
+          SQLConfShims.getMapKeyDedupPolicyUpperCase(SQLConf.get) match {
             case "EXCEPTION"| "LAST_WIN" => // Good we can support this
             case other =>
               willNotWorkOnGpu(s"$other is not supported for config setting" +
@@ -4631,12 +4612,6 @@ object GpuOverrides extends Logging {
       (s, conf, p, r) => new GpuSubqueryBroadcastMeta(s, conf, p, r)
     ),
     SparkShimImpl.aqeShuffleReaderExec,
-    exec[AggregateInPandasExec](
-      "The backend for an Aggregation Pandas UDF, this accelerates the data transfer between" +
-        " the Java process and the Python process. It also supports scheduling GPU resources" +
-        " for the Python process when enabled.",
-      ExecChecks(TypeSig.commonCudfTypes, TypeSig.all),
-      (aggPy, conf, p, r) => new GpuAggregateInPandasExecMeta(aggPy, conf, p, r)),
     exec[ArrowEvalPythonExec](
       "The backend of the Scalar Pandas UDFs. Accelerates the data transfer between the" +
         " Java process and the Python process. It also supports scheduling GPU resources" +
@@ -4693,7 +4668,6 @@ object GpuOverrides extends Logging {
     neverReplaceExec[DropNamespaceExec]("Namespace metadata operation"),
     neverReplaceExec[SetCatalogAndNamespaceExec]("Namespace metadata operation"),
     SparkShimImpl.neverReplaceShowCurrentNamespaceCommand,
-    neverReplaceExec[ShowNamespacesExec]("Namespace metadata operation"),
     neverReplaceExec[AlterTableExec]("Table metadata operation"),
     neverReplaceExec[CreateTableExec]("Table metadata operation"),
     neverReplaceExec[DeleteFromTableExec]("Table metadata operation"),
@@ -4711,7 +4685,8 @@ object GpuOverrides extends Logging {
   ).collect { case r if r != null => (r.getClassFor.asSubclass(classOf[SparkPlan]), r) }.toMap
 
   lazy val execs: Map[Class[_ <: SparkPlan], ExecRule[_ <: SparkPlan]] =
-    commonExecs ++ GpuHiveOverrides.execs ++ ExternalSource.execRules ++
+    commonExecs ++ GpuHiveOverrides.execs ++ AggregateInPandasExecShims.execs ++
+      ShowNamespacesExecShims.execs ++ ExternalSource.execRules ++
       SparkShimImpl.getExecs // Shim execs at the end; shims get the last word in substitutions.
 
   def getTimeParserPolicy: TimeParserPolicy = {

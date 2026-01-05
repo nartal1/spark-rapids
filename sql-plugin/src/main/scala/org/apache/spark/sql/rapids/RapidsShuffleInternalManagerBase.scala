@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2019-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1151,7 +1151,8 @@ class RapidsCachingWriter[K, V](
  *       Apache Spark to use the RAPIDS shuffle manager,
  */
 class RapidsShuffleInternalManagerBase(conf: SparkConf, val isDriver: Boolean)
-    extends ShuffleManager with RapidsShuffleHeartbeatHandler with Logging {
+    extends ShuffleManager with RapidsShuffleHeartbeatHandler with RapidsShuffleReaderShim
+    with Logging {
 
   def getServerId: BlockManagerId = server.fold(blockManager.blockManagerId)(_.getId)
 
@@ -1391,7 +1392,8 @@ class RapidsShuffleInternalManagerBase(conf: SparkConf, val isDriver: Boolean)
     }
   }
 
-  override def getReader[K, C](
+  // Implementation called by version-specific getReader methods
+  def getReaderImpl[K, C](
       handle: ShuffleHandle,
       startMapIndex: Int,
       endMapIndex: Int,
@@ -1466,14 +1468,30 @@ class RapidsShuffleInternalManagerBase(conf: SparkConf, val isDriver: Boolean)
               numReaderThreads = rapidsConf.shuffleMultiThreadedReaderThreads)
           case _ =>
             val shuffleHandle = RapidsShuffleInternalManagerBase.unwrapHandle(other)
-            wrapped.getReader(shuffleHandle, startMapIndex, endMapIndex, startPartition,
+            getWrappedReader(shuffleHandle, startMapIndex, endMapIndex, startPartition,
               endPartition, context, metrics)
         }
       case other =>
         val shuffleHandle = RapidsShuffleInternalManagerBase.unwrapHandle(other)
-        wrapped.getReader(shuffleHandle, startMapIndex, endMapIndex, startPartition,
+        getWrappedReader(shuffleHandle, startMapIndex, endMapIndex, startPartition,
           endPartition, context, metrics)
     }
+  }
+
+  /**
+   * Shimmed method to call wrapped.getReader with the appropriate signature.
+   * This is overridden in version-specific shims when the signature changes.
+   */
+  protected def getWrappedReader[K, C](
+      handle: ShuffleHandle,
+      startMapIndex: Int,
+      endMapIndex: Int,
+      startPartition: Int,
+      endPartition: Int,
+      context: TaskContext,
+      metrics: ShuffleReadMetricsReporter): ShuffleReader[K, C] = {
+    ShuffleManagerShims.getReader(wrapped, handle, startMapIndex, endMapIndex,
+      startPartition, endPartition, context, metrics)
   }
 
   def registerGpuShuffle(shuffleId: Int): Unit = {

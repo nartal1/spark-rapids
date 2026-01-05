@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2024-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 /*** spark-rapids-shim-json-lines
 {"spark": "350db143"}
 {"spark": "400"}
+{"spark": "400db173"}
 {"spark": "401"}
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
@@ -31,7 +32,7 @@ class BatchScanExecMeta(p: BatchScanExec,
     rule: DataFromReplacementRule)
     extends BatchScanExecMetaBase(p, conf, parent, rule) {
   override def convertToGpu(): GpuExec = {
-    val spj = p.spjParams
+    val spj = StoragePartitionJoinShims.fromBatchScan(p.spjParams)
     GpuBatchScanExec(p.output, childScans.head.convertToGpu(), runtimeFilters,
       p.ordering, p.table, spj)
   }
