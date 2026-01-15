@@ -80,12 +80,23 @@ class GpuBloomFilter(buffer: DeviceMemoryBuffer) extends AutoCloseable {
 object GpuBloomFilter {
   // Spark serializes their bloom filters in a specific format, see BloomFilterImpl.readFrom.
   // Data is written via DataOutputStream, so everything is big-endian.
+  // V1 format (Spark 4.0 and earlier):
   // Byte Offset  Size  Description
-  // 0            4     Version ID (see Spark's BloomFilter.Version)
+  // 0            4     Version ID (1)
   // 4            4     Number of hash functions
   // 8            4     Number of longs, N
   // 12           N*8   Bloom filter data buffer as longs
-  private val HEADER_SIZE = 12
+  //
+  // V2 format (Spark 4.1+, SPARK-47547):
+  // Byte Offset  Size  Description
+  // 0            4     Version ID (2)
+  // 4            4     Number of hash functions
+  // 8            4     Seed
+  // 12           4     Number of longs, N
+  // 16           N*8   Bloom filter data buffer as longs
+  
+  // Minimum header size (V1) for initial validation
+  private val MIN_HEADER_SIZE = 12
 
   def apply(s: GpuScalar): GpuBloomFilter = {
     s.dataType match {
@@ -100,11 +111,12 @@ object GpuBloomFilter {
   }
 
   def deserialize(data: BaseDeviceMemoryBuffer): GpuBloomFilter = {
-    // Sanity check bloom filter header
+    // Sanity check bloom filter header - use minimum header size for validation
+    // The JNI layer auto-detects V1/V2 format based on version field
     val totalLen = data.getLength
-    val bitBufferLen = totalLen - HEADER_SIZE
-    require(totalLen >= HEADER_SIZE, s"header size is $totalLen")
-    require(bitBufferLen % 8 == 0, "buffer length not a multiple of 8")
+    require(totalLen >= MIN_HEADER_SIZE, s"bloom filter too small: $totalLen bytes")
+    // The bit buffer length validation depends on the actual header size (V1: 12, V2: 16)
+    // which is determined by the JNI layer when reading. We just do a basic size check here.
     val filterBuffer = DeviceMemoryBuffer.allocate(totalLen)
     closeOnExcept(filterBuffer) { buf =>
       buf.copyFromDeviceBufferAsync(0, data, 0, buf.getLength, Cuda.DEFAULT_STREAM)

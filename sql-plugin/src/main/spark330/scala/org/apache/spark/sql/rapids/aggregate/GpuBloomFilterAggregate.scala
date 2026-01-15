@@ -49,6 +49,7 @@ import ai.rapids.cudf.{ColumnVector, DType, GroupByAggregation, HostColumnVector
 import com.nvidia.spark.rapids.Arm.{closeOnExcept, withResource}
 import com.nvidia.spark.rapids.GpuLiteral
 import com.nvidia.spark.rapids.jni.BloomFilter
+import com.nvidia.spark.rapids.shims.BloomFilterVersionShim
 
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Expression}
 import org.apache.spark.sql.internal.SQLConf.{RUNTIME_BLOOM_FILTER_MAX_NUM_BITS, RUNTIME_BLOOM_FILTER_MAX_NUM_ITEMS}
@@ -112,7 +113,10 @@ object GpuBloomFilterAggregate {
 
 case class GpuBloomFilterUpdate(numHashes: Int, numBits: Long) extends CudfAggregate {
   override val reductionAggregate: ColumnVector => Scalar = (col: ColumnVector) => {
-    closeOnExcept(BloomFilter.create(numHashes, numBits)) { bloomFilter =>
+    // Use the bloom filter version appropriate for the Spark version
+    // V1 for Spark 4.0 and earlier, V2 for Spark 4.1+ (SPARK-47547)
+    closeOnExcept(BloomFilter.create(numHashes, numBits, 
+        BloomFilterVersionShim.bloomFilterVersion)) { bloomFilter =>
       BloomFilter.put(bloomFilter, col)
       bloomFilter
     }
