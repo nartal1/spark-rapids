@@ -140,8 +140,8 @@ object GpuCreateMap {
   }
 
   def exceptionOnDupKeys: Boolean =
-    SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY) ==
-        SQLConf.MapKeyDedupPolicy.EXCEPTION.toString
+    SQLConf.get.getConf(SQLConf.MAP_KEY_DEDUP_POLICY).toString.toUpperCase ==
+        SQLConf.MapKeyDedupPolicy.EXCEPTION.toString.toUpperCase
 
   def createMapFromKeysValuesAsStructs(dataType: MapType,
                                        listsOfKeyValueStructs : ColumnView): GpuColumnVector = {
