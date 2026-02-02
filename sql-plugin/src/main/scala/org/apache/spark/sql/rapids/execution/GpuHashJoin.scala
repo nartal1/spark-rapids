@@ -649,17 +649,6 @@ object GpuHashJoin {
 
     JoinTypeChecks.tagForGpu(joinType, meta)
 
-    // Check for struct keys with different field names.
-    // Spark 4.0+ (SPARK-51738) allows struct comparisons where field names differ,
-    // but the GPU implementation currently requires matching field names.
-    // Fall back to CPU for this case until proper GPU support is added.
-    // See https://github.com/NVIDIA/spark-rapids/issues/13100
-    if (!leftKeys.zip(rightKeys).forall { case (l, r) =>
-        l.dataType.sameType(r.dataType) }) {
-      meta.willNotWorkOnGpu("join keys have different types or struct field names differ, " +
-        "which is not yet supported on GPU")
-    }
-
     joinType match {
       case _: InnerLike =>
       case RightOuter | LeftOuter | LeftSemi | LeftAnti | ExistenceJoin(_) =>
@@ -2437,10 +2426,14 @@ trait GpuHashJoin extends GpuJoinExec {
   }
 
   protected lazy val (buildKeys, streamedKeys) = {
+    // Use DataType.equalsStructurally to match CPU Spark's HashJoin behavior.
+    // This allows struct comparisons where field names differ but types match structurally.
+    // See SPARK-51738 and https://github.com/NVIDIA/spark-rapids/issues/13100
     require(leftKeys.length == rightKeys.length &&
         leftKeys.map(_.dataType)
             .zip(rightKeys.map(_.dataType))
-            .forall(types => types._1.sameType(types._2)),
+            .forall(types => DataType.equalsStructurally(types._1, types._2,
+              ignoreNullability = true)),
       "Join keys from two sides should have same length and types")
     buildSide match {
       case GpuBuildLeft => (leftKeys, rightKeys)

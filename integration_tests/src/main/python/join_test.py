@@ -1842,21 +1842,18 @@ def test_join_degenerate_outer(join_type):
     assert_gpu_and_cpu_are_equal_collect(do_join)
 
 
-# Struct keys with different field names should fall back to CPU
+# Test for SPARK-51738: Struct keys with different field names should run on GPU
 # https://github.com/NVIDIA/spark-rapids/issues/13100
 @ignore_order(local=True)
-@allow_non_gpu('BroadcastExchangeExec', 'BroadcastHashJoinExec', 'ShuffleExchangeExec',
-               'ShuffledHashJoinExec', 'SortMergeJoinExec', 'EqualTo')
 @pytest.mark.skipif(not is_spark_400_or_later(),
                     reason="SPARK-51738 relaxed struct field name matching only in Spark 4.0+")
 @pytest.mark.parametrize('join_type', ['Inner', 'LeftOuter', 'RightOuter', 'LeftSemi', 'LeftAnti'], ids=idfn)
-def test_hash_join_struct_keys_different_field_names_fallback(join_type):
+def test_hash_join_struct_keys_different_field_names(join_type):
     """
-    Test that joins with struct keys having different field names fall back to CPU.
+    Test that joins with struct keys having different field names run correctly on GPU.
 
     Spark 4.0+ (SPARK-51738) allows struct comparisons where field names differ but types match.
-    The GPU implementation currently requires matching field names, so we fall back to CPU.
-    This test ensures no crash occurs and results are correct.
+    The GPU implementation uses DataType.equalsStructurally to match this behavior.
     """
     def do_join(spark):
         # Create left table with struct key having field names 'a' and 'b'
@@ -1872,5 +1869,29 @@ def test_hash_join_struct_keys_different_field_names_fallback(join_type):
         )
         return left_df.join(right_df, left_df.key == right_df.key, join_type)
 
-    # The join should fall back to CPU due to different struct field names
-    assert_gpu_fallback_collect(do_join, 'BroadcastHashJoinExec')
+    assert_gpu_and_cpu_are_equal_collect(do_join)
+
+
+# Test for SPARK-51738: Nested struct keys with different field names should run on GPU
+# https://github.com/NVIDIA/spark-rapids/issues/13100
+@ignore_order(local=True)
+@pytest.mark.skipif(not is_spark_400_or_later(),
+                    reason="SPARK-51738 relaxed struct field name matching only in Spark 4.0+")
+def test_hash_join_nested_struct_keys_different_field_names():
+    """
+    Test that joins with nested struct keys having different field names run correctly on GPU.
+    """
+    def do_join(spark):
+        # Create left table with nested struct key
+        left_df = spark.range(1, 5).selectExpr(
+            "id as left_id",
+            "struct(id as outer_a, struct(id * 10 as inner_a) as nested) as key"
+        )
+        # Create right table with nested struct key (different names at both levels)
+        right_df = spark.range(2, 6).selectExpr(
+            "id as right_id",
+            "struct(id as outer_x, struct(id * 10 as inner_x) as nested_other) as key"
+        )
+        return left_df.join(right_df, left_df.key == right_df.key, 'Inner')
+
+    assert_gpu_and_cpu_are_equal_collect(do_join)
