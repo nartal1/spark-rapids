@@ -1,0 +1,20 @@
+=========================== short test summary info ============================
+FAILED ../../../../integration_tests/src/main/python/generate_expr_test.py::test_generate_outer_fallback[DATAGEN_SEED=1771010506, TZ=UTC, INJECT_OOM, IGNORE_ORDER({'local': True}), ALLOW_NON_GPU(GenerateExec,ShuffleExchangeExec)] - pyspark.errors.exceptions.captured.IllegalArgumentException: Part of the plan is not columnar class org.apache.spark.sql.execution.OneRowRelationExec
+Scan OneRowRelation[]
+=========== 1 failed, 403 passed, 244 warnings in 3073.03s (0:51:13) ===========
+org.apache.spark.SparkUserAppException: User application exited with 1
+	at org.apache.spark.deploy.PythonRunner$.main(PythonRunner.scala:127)
+	at org.apache.spark.deploy.PythonRunner.main(PythonRunner.scala)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.apache.spark.deploy.JavaMainApplication.start(SparkApplication.scala:52)
+	at org.apache.spark.deploy.SparkSubmit.org$apache$spark$deploy$SparkSubmit$$runMain(SparkSubmit.scala:1024)
+	at org.apache.spark.deploy.SparkSubmit.doRunMain$1(SparkSubmit.scala:198)
+	at org.apache.spark.deploy.SparkSubmit.submit(SparkSubmit.scala:221)
+	at org.apache.spark.deploy.SparkSubmit.doSubmit(SparkSubmit.scala:95)
+	at org.apache.spark.deploy.SparkSubmit$$anon$2.doSubmit(SparkSubmit.scala:1140)
+	at org.apache.spark.deploy.SparkSubmit$.main(SparkSubmit.scala:1149)
+	at org.apache.spark.deploy.SparkSubmit.main(SparkSubmit.scala)
+2026-02-13 20:13:46,831 [shutdown-hook-0] WARN  org.apache.spark.SparkContext - Requesting executors is not supported by current scheduler.
