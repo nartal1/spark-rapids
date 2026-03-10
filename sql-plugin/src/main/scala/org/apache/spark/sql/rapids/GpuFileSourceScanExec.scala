@@ -660,7 +660,7 @@ object GpuFileSourceScanExec {
       GpuReadOrcFileFormat.tagSupport(meta)
     } else if (cls == classOf[ParquetFileFormat]) {
       GpuReadParquetFileFormat.tagSupport(meta)
-    } else if (cls == classOf[JsonFileFormat]) {
+    } else if (classOf[JsonFileFormat].isAssignableFrom(cls)) {
       GpuReadJsonFileFormat.tagSupport(meta)
     } else if (ExternalSource.isSupportedFormat(cls)) {
       ExternalSource.tagSupportForGpuFileSourceScan(meta)
@@ -678,7 +678,7 @@ object GpuFileSourceScanExec {
       new GpuReadOrcFileFormat
     } else if (cls == classOf[ParquetFileFormat]) {
       new GpuReadParquetFileFormat
-    } else if (cls == classOf[JsonFileFormat]) {
+    } else if (classOf[JsonFileFormat].isAssignableFrom(cls)) {
       new GpuReadJsonFileFormat
     } else if (ExternalSource.isSupportedFormat(cls)) {
       ExternalSource.getReadFileFormat(relation)
