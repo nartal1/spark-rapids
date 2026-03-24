@@ -15,33 +15,7 @@
  */
 
 /*** spark-rapids-shim-json-lines
-{"spark": "330"}
-{"spark": "330db"}
-{"spark": "331"}
-{"spark": "332"}
-{"spark": "332db"}
-{"spark": "333"}
-{"spark": "334"}
-{"spark": "340"}
-{"spark": "341"}
-{"spark": "341db"}
-{"spark": "342"}
-{"spark": "343"}
-{"spark": "344"}
-{"spark": "350"}
-{"spark": "350db143"}
-{"spark": "351"}
-{"spark": "352"}
-{"spark": "353"}
-{"spark": "354"}
-{"spark": "355"}
-{"spark": "356"}
-{"spark": "357"}
-{"spark": "400"}
-{"spark": "400db173"}
-{"spark": "401"}
-{"spark": "402"}
-{"spark": "411"}
+{"spark": "358"}
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
@@ -50,7 +24,7 @@ import com.nvidia.spark.rapids.ScalableTaskCompletion.onTaskCompletion
 
 import org.apache.spark.{InterruptibleIterator, Partition, SparkContext, SparkException, TaskContext}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.connector.read.{InputPartition, PartitionReaderFactory}
+import org.apache.spark.sql.connector.read.{InputPartition, PartitionReader, PartitionReaderFactory}
 import org.apache.spark.sql.execution.datasources.v2.{DataSourceRDD, DataSourceRDDPartition}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
@@ -61,6 +35,9 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
  * use multithreaded readers that cannot generate proper metrics with DataSourceRDD.
  * @note It is the responsibility of users of this RDD to generate the bytes read input
  *       metric explicitly!
+ *
+ * This version (spark358+) also propagates custom metrics between grouped partition readers
+ * in KeyGroupedPartitioning scenarios, as fixed by SPARK-55302.
  */
 class GpuDataSourceRDD(
     sc: SparkContext,
@@ -79,6 +56,7 @@ class GpuDataSourceRDD(
       private val inputPartitions = castPartition(split).inputPartitions
       private var currentIter: Option[Iterator[Object]] = None
       private var currentIndex: Int = 0
+      private var previousReader: Option[PartitionReader[ColumnarBatch]] = None
 
       override def hasNext: Boolean = currentIter.exists(_.hasNext) || advanceToNextIter()
 
@@ -95,13 +73,16 @@ class GpuDataSourceRDD(
           currentIndex += 1
 
           // TODO: SPARK-25083 remove the type erasure hack in data source scan
-          val (iter, reader) = {
-            val batchReader = partitionReaderFactory.createColumnarReader(inputPartition)
-            val iter = new MetricsBatchIterator(
-              new PartitionIterator[ColumnarBatch](batchReader))
-            (iter, batchReader)
+          val batchReader = partitionReaderFactory.createColumnarReader(inputPartition)
+          // SPARK-55302: propagate custom metrics from the previous grouped reader so that
+          // connectors using KeyGroupedPartitioning accumulate metrics correctly
+          previousReader.foreach { prev =>
+            batchReader.initMetricsValues(prev.currentMetricsValues())
           }
-          onTaskCompletion(reader.close())
+          previousReader = Some(batchReader)
+          val iter = new MetricsBatchIterator(
+            new PartitionIterator[ColumnarBatch](batchReader))
+          onTaskCompletion(batchReader.close())
 
           currentIter = Some(iter)
           hasNext
