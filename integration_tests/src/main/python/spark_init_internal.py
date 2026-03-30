@@ -97,6 +97,30 @@ def create_tmp_hive():
     except Exception as e:
         logging.warn(f"Failed to setup the hive scratch dir {path}. Error {e}")
 
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    # On Databricks with Spark 4.x (e.g. DB-17.3 = spark400db173), gRPC/Netty
+    # epollEventLoopGroup threads are non-daemon and block JVM shutdown after all
+    # tests complete. System.exit() runs shutdown hooks which wait for these threads
+    # indefinitely, causing CI to hang.
+    # Runtime.halt() bypasses all shutdown hooks and forces immediate JVM exit,
+    # which is safe here since all test results have already been recorded by pytest.
+    # trylast=True ensures all other sessionfinish hooks (e.g. junitxml) run first.
+    is_databricks = os.path.exists('/databricks/spark/VERSION')
+    try:
+        is_spark4 = _spark.version.startswith('4.')
+    except Exception:
+        is_spark4 = False
+    if is_databricks and is_spark4:
+        logging.info("Databricks Spark 4.x detected: forcing JVM exit via Runtime.halt() "
+                     "to bypass gRPC epollEventLoopGroup thread hang on shutdown")
+        try:
+            _spark._jvm.java.lang.Runtime.getRuntime().halt(int(exitstatus))
+        except Exception as e:
+            logging.warning(f"Runtime.halt() failed: {e}, falling back to os._exit()")
+            os._exit(int(exitstatus))
+
+
 # Entry point into this file
 def pytest_sessionstart(session):
     # initializations that must happen globally once before tests start
