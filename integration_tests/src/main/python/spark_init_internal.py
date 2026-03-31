@@ -295,3 +295,47 @@ def set_spark_job_timeout(request):
     # after the test
     _set_job_timeout_and_crash_when_failed(spark_timeout, dump_threads)
 
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    # On Databricks with Spark 4.x (e.g. DB-17.3 = spark400db173), gRPC/Netty
+    # epollEventLoopGroup threads are non-daemon and block JVM shutdown after all
+    # tests complete. System.exit() runs shutdown hooks which wait for these threads
+    # indefinitely, causing CI to hang.
+    #
+    # Fix: first stop the SparkConnect gRPC services whose partially-initialized
+    # Netty thread pools are the root cause.  Then pause briefly for Databricks
+    # native threads (prometheus/loki metrics) to finish their current cycle —
+    # calling halt() while they are mid-flight causes a SIGSEGV crash.  Finally,
+    # Runtime.halt() bypasses all shutdown hooks and forces immediate JVM exit.
+    #
+    # trylast=True ensures all other sessionfinish hooks (e.g. junitxml) run first.
+    is_databricks = os.path.exists('/databricks/spark/VERSION')
+    try:
+        is_spark4 = _spark.version.startswith('4.')
+    except Exception:
+        is_spark4 = False
+    if is_databricks and is_spark4:
+        logging.info("Databricks Spark 4.x detected: stopping SparkConnect services "
+                     "and forcing JVM exit")
+        # Shut down SparkConnect gRPC services to release non-daemon Netty threads.
+        # Even though their bind failed, the Netty/gRPC thread pools were partially
+        # initialized and keep the JVM alive.
+        try:
+            _spark._jvm.org.apache.spark.sql.connect.service.SparkConnectService.stop()
+        except Exception:
+            pass
+        try:
+            _spark._jvm.com.databricks.spark.connect.service.LocalSparkConnectService.stop()
+        except Exception:
+            pass
+        # Brief pause for Databricks native threads (prometheus/loki metrics) to
+        # finish their current reporting cycle before halt() tears down the JVM.
+        import time
+        time.sleep(1)
+        try:
+            _spark._jvm.java.lang.Runtime.getRuntime().halt(int(exitstatus))
+        except Exception as e:
+            logging.warning(f"Runtime.halt() failed: {e}, falling back to os._exit()")
+            os._exit(int(exitstatus))
+
