@@ -1,0 +1,48 @@
+/*
+ * Copyright (c) 2024, NVIDIA CORPORATION.
+ *
+ * This file was derived from DoAutoCompaction.scala
+ * from https://github.com/delta-io/delta/pull/1156
+ * in the Delta Lake project at https://github.com/delta-io/delta.
+ *
+ * Copyright (2021) The Delta Lake Project Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.databricks.sql.transaction.tahoe.rapids
+
+import com.databricks.sql.transaction.tahoe._
+import com.databricks.sql.transaction.tahoe.hooks.PostCommitHook
+import com.databricks.sql.transaction.tahoe.metering.DeltaLogging
+import com.nvidia.spark.rapids.RapidsConf
+
+import org.apache.spark.sql.SparkSession
+
+object GpuDoAutoCompaction extends PostCommitHook
+    with DeltaLogging
+    with Serializable {
+  override val name: String = "Triggers compaction if necessary"
+
+  override def run(spark: SparkSession,
+                   committedTxn: CommittedTransaction): Unit = {
+    val rapidsConf = new RapidsConf(spark.sessionState.conf)
+    val gpuDeltaLog = new GpuDeltaLog(committedTxn.deltaLog, rapidsConf)
+    val newTxn = gpuDeltaLog.startTransaction()
+    new GpuOptimizeExecutor(spark, newTxn, Seq.empty, Seq.empty,
+      committedTxn.committedActions).optimize()
+  }
+
+  override def handleError(spark: SparkSession, error: Throwable, version: Long): Unit =
+    throw DeltaErrors.postCommitHookFailedException(this, version, name, error)
+}

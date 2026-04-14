@@ -24,6 +24,9 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.util.Clock
 
 class GpuDeltaLog(val deltaLog: DeltaLog, rapidsConf: RapidsConf) {
+  // Used as implicit Clock for GpuOptimisticTransaction constructor in pre-DB-17.3 versions.
+  // Suppress unused warning for DB-17.3 where Clock is obtained internally.
+  @scala.annotation.nowarn("msg=never used")
   private lazy implicit val _clock: Clock = deltaLog.clock
 
   /* ------------------ *

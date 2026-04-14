@@ -24,7 +24,7 @@ package com.databricks.sql.transaction.tahoe.rapids
 import ai.rapids.cudf.{ColumnVector, Scalar}
 import com.databricks.sql.transaction.tahoe.constraints.{CheckDeltaInvariant, Constraint}
 import com.databricks.sql.transaction.tahoe.constraints.Constraints.{Check, NotNull}
-import com.nvidia.spark.rapids.{DataFromReplacementRule, ExprChecks, GpuBindReferences, GpuColumnVector, GpuExpression, GpuMetric, GpuOverrides, RapidsConf, RapidsMeta, TypeSig, UnaryExprMeta}
+import com.nvidia.spark.rapids.{DataFromReplacementRule, ExprChecks, ExprMeta, GpuBindReferences, GpuColumnVector, GpuExpression, GpuMetric, GpuOverrides, RapidsConf, RapidsMeta, TypeSig}
 import com.nvidia.spark.rapids.Arm.withResource
 import com.nvidia.spark.rapids.RapidsPluginImplicits._
 import com.nvidia.spark.rapids.delta.shims.InvariantViolationExceptionShim
@@ -162,7 +162,7 @@ class GpuCheckDeltaInvariantMeta(
     conf: RapidsConf,
     parent: Option[RapidsMeta[_, _, _]],
     rule: DataFromReplacementRule)
-    extends UnaryExprMeta[CheckDeltaInvariant](check, conf, parent, rule) {
+    extends ExprMeta[CheckDeltaInvariant](check, conf, parent, rule) {
 
   override def tagExprForGpu(): Unit = {
     wrapped.constraint match {
@@ -171,10 +171,11 @@ class GpuCheckDeltaInvariantMeta(
     }
   }
 
-  override def convertToGpu(child: Expression): GpuExpression = {
+  override def convertToGpuImpl(): GpuExpression = {
+    val child = childExprs.head.convertToGpu()
     GpuCheckDeltaInvariant(
       child,
-      wrapped.columnExtractors,  // leave these on CPU
+      wrapped.columnExtractors.toMap,  // .toMap for Spark 4.0 compat (Seq→Map)
       wrapped.constraint)
   }
 }
