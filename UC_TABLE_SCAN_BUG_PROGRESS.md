@@ -43,39 +43,35 @@ Both produce the same result when `pathPrefix = None`:
 5. **`inputFiles()` returns absolute paths** from the file index — the root path is available
 6. **The file index root path**: `s3://databricks-workspace-stack-02cb5-bucket/unity-catalog/1452527783459099/__unitystorage/catalogs/.../tables/...`
 
-## Fix #1: Path Prefix Restoration (Committed)
+## Fix #1: Path Prefix Restoration — REVERTED (Not Shipped)
 
-**Commit**: `c3967dad9d6f25dc45ac55bc0936a7e5e6b02791`
+**Original commits**: `135d66ae1` (innerFiles→filesWithAbsolutePaths), `c3967dad9` (withPathPrefixIfNeeded)
 
-### Approach: Restore `pathPrefix` After Partition Recreation
+### What It Did
 
-Add `FilePartitionShims.withPathPrefixIfNeeded()` that sets `pathPrefix` from `relation.location.rootPaths` on partitions that lost it. Called from `GpuFileSourceScanExec.createNonBucketedReadRDD` after `FilePartition.getFilePartitions`.
+- Changed `FilePartitionShims.getFiles()` and `Spark400PlusDBShims.getPartitionFiles()` from `p.innerFiles` to `p.filesWithAbsolutePaths`
+- Added `FilePartitionShims.withPathPrefixIfNeeded()` to restore `pathPrefix` from `relation.location.rootPaths` on partitions that lost it
+- Added no-op `withPathPrefixIfNeeded` to all other shims (321, 341db, 350, 355, 400)
+- Called `withPathPrefixIfNeeded` from `GpuFileSourceScanExec.createNonBucketedReadRDD`
 
-### Files Changed
+### Why It Was Reverted
 
-| File | Change |
-|------|--------|
-| `sql-plugin/src/main/spark400db173/.../FilePartitionShims.scala` | Added `withPathPrefixIfNeeded` (real impl) + kept `filesWithAbsolutePaths` in `getFiles`/`getPartitionFiles` |
-| `sql-plugin/src/main/spark400db173/.../Spark400PlusDBShims.scala` | Changed `innerFiles` to `filesWithAbsolutePaths` in `getPartitionFiles` |
-| `sql-plugin/src/main/spark{321,341db,350,355,400}/.../FilePartitionShims.scala` | Added no-op `withPathPrefixIfNeeded` |
-| `sql-plugin/src/main/scala/.../GpuFileSourceScanExec.scala` | Call `FilePartitionShims.withPathPrefixIfNeeded(partitions, relation)` before `getFinalRDD` |
+After decompiling the actual Databricks 17.3 jars, we discovered that the GPU implementation **does not match how the CPU sets `pathPrefix`**. The implementation was a best-effort guess, not a faithful reproduction. See the "CPU `pathPrefix` Implementation (From Decompiled DB-17.3 Jars)" section below for details.
 
-### Status: VERIFIED — path error is gone
+Since Fix #2 (Delta scan fallback) makes this code path unreachable for UC tables (the scan falls back to CPU which handles pathPrefix correctly), shipping an incorrect GPU-side path fix adds risk with no benefit.
 
-After deploying the jar with this fix, the `Path must be absolute` error no longer occurs. The scan proceeds past path resolution into the Delta reader pipeline.
-
-### `filesWithAbsolutePaths` Is Idempotent
+### `filesWithAbsolutePaths` Is Idempotent (Reference)
 
 Confirmed by decompiling `FilePartitionBase`:
 - `makePathsAbsolute`: if `pathPrefix` is `None`, returns files unchanged
 - `absolutePath`: checks `path.isAbsolute()` first — if already absolute, returns as-is
 - `$anonfun$makePathsAbsolute$1`: checks `filePath.toUri.isAbsolute` — if URI has a scheme (s3://), returns as-is
 
-So double-calling `filesWithAbsolutePaths` is safe.
+So double-calling `filesWithAbsolutePaths` is safe. This is relevant for any future implementation.
 
 ---
 
-## Fix #2: Delta Scan Fallback for DB-17.3 (Uncommitted)
+## Fix #2: Delta Scan Fallback for DB-17.3 (Shipped)
 
 ### New Error After Fix #1
 
@@ -181,11 +177,9 @@ Project [id, name]           ← GPU
 - Comprehensive: catches ALL Delta features (skip_row, deletion vectors, etc.), not just one column
 - Future-proof: when a `delta-spark400db173` Delta provider is created, `ExternalSource.isSupportedFormat` returns `true` and scan goes back to GPU automatically
 
-### Current State of Fix #2
+### Status: SHIPPED
 
-**Files are staged but NOT committed:**
-- `spark330db/FileSourceScanExecMeta.scala` — `{"spark": "400db173"}` removed (modified)
-- `spark400db173/FileSourceScanExecMeta.scala` — new file with format check
+**Commit**: `abe3b2e4f` — forked `FileSourceScanExecMeta` for 400db173 with the format check.
 
 ### Why NOT other approaches?
 
@@ -195,6 +189,76 @@ Project [id, name]           ← GPU
 | Add check in common `GpuFileSourceScanExec.tagSupport` | Affects all Spark/DB versions, not shim-specific |
 | Patch skip_row specifically | Fragile — next Delta feature on DB-17.3 breaks again |
 | Handle skip_row in GPU reader | Major effort, and DB-17.3 has no Delta provider |
+
+---
+
+## CPU `pathPrefix` Implementation (From Decompiled DB-17.3 Jars)
+
+Decompiled from `/databricks/jars/----ws_4_0--sql--core--core-hive-2.3__hadoop-3.2_2.13_deploy.jar`
+on a DB-17.3 cluster (2026-04-15).
+
+### How the CPU Creates `FilePartition` Objects
+
+The CPU path for non-bucketed reads flows through:
+
+1. `FileSourceScanExec.inputRDD` → `createPartitionsForNonBucketedRead()`
+2. `SparkOrAetherFileSourceScanLike.createPartitionsForNonBucketedRead()` checks:
+   - If `TahoeFileIndexSupportingStaticScan` with `shouldUseStaticScan == true` → calls `partitionsForStaticScan` (sets pathPrefix from `getPath()`)
+   - If `TahoeFileIndexWithStaticPartitions` → returns `getStaticPartitions` directly
+   - Otherwise → falls through to `createPartitionsFromSelectedPartitions`
+3. `createPartitionsFromSelectedPartitions` delegates to `FileScanPartitioner.apply(...).buildAllPartitions()`
+
+### Where `pathPrefix` Is Actually Set
+
+In `FileScanPartitioner.closePartition()` (proprietary Databricks code), the pseudocode is:
+
+```scala
+private def closePartition(preferredHosts: Option[Seq[String]],
+                           files: Array[PartitionedFile]): Unit = {
+  if (files.nonEmpty) {
+    val pathPrefix: Option[String] = relationLocation match {
+      case tfi: TahoeFileIndex if usingRelativePaths =>
+        driverMetrics(RELATIVE_PATHS_IN_DELTA_FILE_LISTING).set(1L)
+        Some(tfi.path().toString)     // Path.toString(), NOT Path.toUri().toString()
+      case _ =>
+        driverMetrics(RELATIVE_PATHS_IN_DELTA_FILE_LISTING).set(0L)
+        None
+    }
+    val partition = FilePartition(partitions.size, files, pathPrefix, preferredHosts)
+    partitions += partition
+  }
+}
+```
+
+### Key Facts
+
+1. **`pathPrefix` comes from `TahoeFileIndex.path()`** — NOT `rootPaths`
+2. **It only sets `pathPrefix` when `usingRelativePaths == true`** — a flag tracked within `FileScanPartitioner`
+3. **It only sets `pathPrefix` when the file index is `TahoeFileIndex`** — non-Delta tables always get `None`
+4. **It uses `Path.toString()`**, not `Path.toUri().toString()` — subtle difference in string format
+5. **`FilePartition.getFilePartitions()` always uses `apply$default$3` = `None` for pathPrefix** — confirmed in companion object bytecode
+
+### Differences from the Reverted GPU `withPathPrefixIfNeeded`
+
+| Aspect | CPU (`FileScanPartitioner`) | GPU (`withPathPrefixIfNeeded`) |
+|--------|----------------------------|-------------------------------|
+| Source of prefix | `TahoeFileIndex.path()` | `relation.location.rootPaths.head` |
+| Format | `Path.toString()` | `Path.toString()` (same) |
+| Guard condition | `instanceof TahoeFileIndex && usingRelativePaths` | `rootPaths.size == 1 && pathPrefix.isEmpty` |
+| Non-Delta tables | Always `None` | Could incorrectly set prefix |
+| Multi-root indexes | N/A (TahoeFileIndex has single path) | Skips (returns partitions unchanged) |
+
+### Implications for Future Delta Provider (DB-17.3)
+
+When implementing a Delta provider for DB-17.3, the path prefix restoration in the GPU plugin
+**must** match the CPU behavior:
+
+1. **Use `TahoeFileIndex.path()`** as the source of `pathPrefix`, not `rootPaths`
+2. **Only set `pathPrefix` when paths are actually relative** — check whether the `PartitionedFile.filePath` URIs are relative, similar to the CPU's `usingRelativePaths` tracking
+3. **Only apply to `TahoeFileIndex`** — plain `FileIndex` / `InMemoryFileIndex` should never get a `pathPrefix`
+4. **Also fix `getFiles()` and `getPartitionFiles()`** to use `filesWithAbsolutePaths` instead of `innerFiles` (commit `135d66ae1` had this right)
+5. **Also fix `createBucketedReadRDD`** — it creates `FilePartition` directly (lines 536, 540 of `GpuFileSourceScanExec.scala`) without `withPathPrefixIfNeeded`. If UC tables can be bucketed in the future, this is a gap.
+6. **Access to `TahoeFileIndex`**: The class is at `com.databricks.sql.transaction.tahoe.files.TahoeFileIndex`. The `.path()` method returns the table root as a `org.apache.hadoop.fs.Path`. This requires a DB-specific shim since the class is proprietary.
 
 ---
 
@@ -321,12 +385,24 @@ sudo cp /home/ubuntu/spark-rapids/scala2.13/dist/target/rapids-4-spark_2.13-26.0
 
 ## What Remains
 
-- [x] Fix #1: Path prefix restoration — committed (`c3967dad9`), verified on cluster
-- [ ] Fix #2: Delta scan fallback — files staged, NOT yet committed or built
-- [ ] Build dist jar with both fixes
+### Shipped
+- [x] Fix #2: Delta scan fallback — committed (`abe3b2e4f`), `FileSourceScanExecMeta` forked for 400db173
+
+### Reverted (Not Needed Now)
+- [x] Fix #1: Path prefix restoration — reverted. The `withPathPrefixIfNeeded` implementation did not match CPU behavior (see "CPU `pathPrefix` Implementation" section). Not needed because Fix #2 makes the scan fall back to CPU for all UC managed (Delta) tables.
+
+### To Do
+- [ ] Build dist jar with Fix #2 only
 - [ ] Deploy to DB-17.3 cluster with UC access
 - [ ] Re-run repro script — expect successful read with scan on CPU, rest on GPU
 - [ ] Verify explain plan shows scan on CPU, Project/Filter on GPU
+- [ ] Verify raw Parquet reads still run on GPU (format check is `fmtCls != classOf[ParquetFileFormat]`, so plain Parquet is unaffected)
 - [ ] Verify non-DB Spark versions compile (330, 350, 400) — ensure shim separation didn't break anything
 - [ ] Run unit tests: `mvn package -f scala2.13 -pl tests -am -Dbuildver=400db173`
-- [ ] Consider whether `withPathPrefixIfNeeded` (Fix #1) is still needed if scan always falls back to CPU for Delta on 400db173. **Answer: YES** — it's needed for when a Delta provider for DB-17.3 is eventually created.
+
+### Future: Delta Provider for DB-17.3
+When a Delta provider (`rapids-4-spark-delta-400db173`) is created:
+- `ExternalSource.isSupportedFormat(DeltaParquetFileFormat)` will return `true`
+- The scan fallback check will no longer trigger → scans go back to GPU
+- At that point, the `pathPrefix` fix will be needed again — but it **must** be reimplemented correctly using `TahoeFileIndex.path()` (see "Implications for Future Delta Provider" section above)
+- The `innerFiles` → `filesWithAbsolutePaths` change will also be needed at that point
