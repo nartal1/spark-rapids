@@ -15,10 +15,7 @@
  */
 
 /*** spark-rapids-shim-json-lines
-{"spark": "330db"}
-{"spark": "332db"}
-{"spark": "341db"}
-{"spark": "350db143"}
+{"spark": "400db173"}
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
@@ -29,8 +26,9 @@ import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 import org.apache.spark.sql.execution.datasources.json.JsonFileFormat
+import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
-import org.apache.spark.sql.rapids.GpuFileSourceScanExec
+import org.apache.spark.sql.rapids.{ExternalSource, GpuFileSourceScanExec}
 import org.apache.spark.sql.rapids.execution.{GpuBroadcastExchangeExec, GpuSubqueryBroadcastExec}
 
 class FileSourceScanExecMeta(plan: FileSourceScanExec,
@@ -121,6 +119,16 @@ class FileSourceScanExecMeta(plan: FileSourceScanExec,
             "com.databricks.sql.transaction.tahoe.DeltaLogFileIndex") {
       this.entirePlanWillNotWork("Plans that read Delta Index JSON files can not run " +
           "any part of the plan on the GPU!")
+    }
+    // DB-17.3 has no Delta provider. If the file format is a ParquetFileFormat subclass
+    // (e.g. DeltaParquetFileFormat) not handled by ExternalSource, fall back the scan
+    // to CPU so the subclass can handle format-specific features like deletion vectors
+    // and skip_row columns.
+    val fmtCls = wrapped.relation.fileFormat.getClass
+    if (classOf[ParquetFileFormat].isAssignableFrom(fmtCls) &&
+        fmtCls != classOf[ParquetFileFormat] &&
+        !ExternalSource.isSupportedFormat(fmtCls)) {
+      willNotWorkOnGpu(s"unsupported file format: ${fmtCls.getCanonicalName}")
     }
     ScanExecShims.tagGpuFileSourceScanExecSupport(this)
   }
