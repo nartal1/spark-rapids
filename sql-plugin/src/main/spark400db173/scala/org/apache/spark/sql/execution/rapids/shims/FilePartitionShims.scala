@@ -36,4 +36,31 @@ object FilePartitionShims extends SplitFiles {
   def copyWithFiles(p: FilePartition, newFiles: Array[PartitionedFile]): FilePartition = {
     p.copy(innerFiles = newFiles)
   }
+
+  /**
+   * On Databricks 17.3, Unity Catalog managed tables store only bare filenames in
+   * FilePartition.innerFiles, relying on pathPrefix to resolve them to absolute paths.
+   * When FilePartition objects are recreated by FilePartition.getFilePartitions (e.g.,
+   * in the non-bucketed read path), pathPrefix is lost. This method restores it from
+   * the HadoopFsRelation's file index root paths so that filesWithAbsolutePaths can
+   * resolve relative file paths correctly.
+   */
+  def withPathPrefixIfNeeded(
+      partitions: Seq[FilePartition],
+      relation: HadoopFsRelation): Seq[FilePartition] = {
+    // Only set pathPrefix if it's missing and the file index has a single root path
+    val rootPaths = relation.location.rootPaths
+    if (rootPaths.size == 1) {
+      val prefix = rootPaths.head.toString
+      partitions.map { p =>
+        if (p.pathPrefix.isEmpty) {
+          p.copy(pathPrefix = Some(prefix))
+        } else {
+          p
+        }
+      }
+    } else {
+      partitions
+    }
+  }
 }

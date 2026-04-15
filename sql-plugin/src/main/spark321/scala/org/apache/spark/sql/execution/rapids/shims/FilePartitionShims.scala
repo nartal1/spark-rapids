@@ -108,4 +108,8 @@ object FilePartitionShims {
     }.sortBy(_.length)(implicitly[Ordering[Long]].reverse)
   }
 
+  def withPathPrefixIfNeeded(
+      partitions: Seq[FilePartition],
+      relation: HadoopFsRelation): Seq[FilePartition] = partitions
+
 }
