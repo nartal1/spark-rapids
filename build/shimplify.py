@@ -1,4 +1,4 @@
-# Copyright (c) 2023-2024, NVIDIA CORPORATION.
+# Copyright (c) 2023-2026, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -196,7 +196,7 @@ __log.addHandler(__ch)
 __all_shims_arr = sorted(__ant_proj_prop("included_buildvers").split(", "))
 __shims_arr = __all_shims_arr if not __shims_arr else __shims_arr
 
-__shim_dir_pattern = re.compile(r'spark\d{3}')
+__shim_dir_pattern = re.compile(r'spark(?:\d{3}\w*|master)')
 __shim_comment_pattern = re.compile(re.escape(__opening_shim_tag) +
                                     r'\n(.*)\n' +
                                     re.escape(__closing_shim_tag), re.DOTALL)

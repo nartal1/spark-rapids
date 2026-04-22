@@ -722,6 +722,27 @@
                 <module>iceberg/iceberg-stub</module>
             </modules>
         </profile>
+        <profile>
+            <id>releasemaster</id>
+            <activation>
+                <property>
+                    <name>buildver</name>
+                    <value>master</value>
+                </property>
+            </activation>
+            <properties>
+                <buildver>master</buildver>
+                <spark.version>${sparkmaster.version}</spark.version>
+                <spark.test.version>${sparkmaster.version}</spark.test.version>
+                <parquet.hadoop.version>1.13.1</parquet.hadoop.version>
+                <rapids.delta.artifactId1>rapids-4-spark-delta-stub</rapids.delta.artifactId1>
+                <slf4j.version>2.0.7</slf4j.version>
+            </properties>
+            <modules>
+                <module>delta-lake/delta-stub</module>
+                <module>iceberg/iceberg-stub</module>
+            </modules>
+        </profile>
         --><!-- #endif scala-2.13 -->
         <profile>
             <id>source-javadoc</id>
@@ -900,6 +921,7 @@
         <spark401.version>4.0.1</spark401.version>
         <spark402.version>4.0.2</spark402.version>
         <spark411.version>4.1.1</spark411.version>
+        <sparkmaster.version>4.2.0-SNAPSHOT</sparkmaster.version>
         <mockito.version>3.12.4</mockito.version>
         <!-- same as Apache Spark 4.0.0 for Scala 2.13 except for cloudera shims -->
         <scala.plugin.version>4.9.2</scala.plugin.version>
@@ -1617,7 +1639,7 @@ This will force full Scala code rebuild in downstream modules.
                         <requireProperty>
                             <regexMessage>Unexpected buildver value ${buildver} for a Scala 2.13 build, only Apache Spark versions 3.3.0 (330) and higher are supported</regexMessage>
                             <property>buildver</property>
-                            <regex>(?:[3-9][3-9]|[4-9][0-9])[0-9](?:db\d*)?</regex>
+                            <regex>(?:[3-9][3-9]|[4-9][0-9])[0-9](?:db\d*)?|master</regex>
                         </requireProperty>
                         --><!-- #endif scala-2.13 -->
                       </rules>
