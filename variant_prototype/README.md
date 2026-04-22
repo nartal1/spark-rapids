@@ -20,9 +20,12 @@ variant_prototype/
 │       └── VariantUtilsJni.cpp                    ← adds to spark-rapids-jni
 ├── spark_rapids/
 │   └── GpuVariantGet.scala                        ← adds to this repo
-└── cpu_benchmark/
-    ├── variant_cpu_benchmark.py                   ← PySpark CPU baseline harness
-    └── README.md                                  ← how to run / interpret
+├── cpu_benchmark/
+│   ├── variant_cpu_benchmark.py                   ← PySpark CPU baseline harness
+│   └── README.md                                  ← how to run / interpret
+└── examples/
+    ├── spark_shell_variant_example.scala          ← Spark 4.0 spark-shell walkthrough
+    └── README.md                                  ← what it does / how to run
 ```
 
 ## Where each file goes when you resume
