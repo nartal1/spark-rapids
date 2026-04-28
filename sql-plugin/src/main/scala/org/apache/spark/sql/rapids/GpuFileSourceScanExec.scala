@@ -566,7 +566,7 @@ case class GpuFileSourceScanExec(
 
       FilePartition.getFilePartitions(relation.sparkSession, splitFiles, maxSplitBytes)
     }
-    getFinalRDD(readFile, partitions)
+    getFinalRDD(readFile, FilePartitionShims.withPathPrefixIfNeeded(partitions, relation))
   }
 
   private def getFinalRDD(

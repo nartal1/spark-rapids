@@ -39,4 +39,9 @@ object FilePartitionShims extends SplitFiles {
   def copyWithFiles(p: FilePartition, newFiles: Array[PartitionedFile]): FilePartition = {
     p.copy(files = newFiles)
   }
+
+  // See the DB-17.3 FilePartitionShims for the purpose of this method. No-op elsewhere.
+  def withPathPrefixIfNeeded(
+      partitions: Seq[FilePartition],
+      relation: HadoopFsRelation): Seq[FilePartition] = partitions
 }

@@ -31,9 +31,29 @@ object FilePartitionShims extends SplitFiles {
     }
   }
 
-  def getFiles(p: FilePartition): Array[PartitionedFile] = p.innerFiles
+  def getFiles(p: FilePartition): Array[PartitionedFile] = p.filesWithAbsolutePaths
 
   def copyWithFiles(p: FilePartition, newFiles: Array[PartitionedFile]): FilePartition = {
     p.copy(innerFiles = newFiles)
+  }
+
+  // On Databricks 17.3, Delta/UC-managed tables store bare filenames in
+  // FilePartition.innerFiles and rely on pathPrefix for absolute resolution. When
+  // GpuFileSourceScanExec.createNonBucketedReadRDD recreates partitions via
+  // FilePartition.getFilePartitions, the 2-arg factory drops pathPrefix (it is not one of
+  // the arguments). This restores it from the relation's single root path so that
+  // filesWithAbsolutePaths can resolve relative paths correctly. No-op on all other shims.
+  def withPathPrefixIfNeeded(
+      partitions: Seq[FilePartition],
+      relation: HadoopFsRelation): Seq[FilePartition] = {
+    val rootPaths = relation.location.rootPaths
+    if (rootPaths.size == 1) {
+      val prefix = rootPaths.head.toString
+      partitions.map { p =>
+        if (p.pathPrefix.isEmpty) p.copy(pathPrefix = Some(prefix)) else p
+      }
+    } else {
+      partitions
+    }
   }
 }
