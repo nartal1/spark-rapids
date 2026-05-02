@@ -16,102 +16,61 @@
 
 package com.nvidia.spark.rapids.delta
 
-import com.databricks.sql.transaction.tahoe.{DeltaColumnMappingMode, DeltaParquetFileFormat, IdMapping}
+import com.databricks.sql.transaction.tahoe.DeltaParquetFileFormat
 import com.databricks.sql.transaction.tahoe.actions.{Metadata, Protocol}
-import com.nvidia.spark.rapids.{GpuMetric, SparkPlanMeta}
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.Path
+import com.nvidia.spark.rapids.SparkPlanMeta
 
-import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.FileSourceScanExec
-import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, PartitionedFile}
-import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.rapids.shims.TrampolineConnectShims
-import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 
 /**
- * Minimal GPU Delta Parquet file format for Databricks 17.3.
+ * GPU Delta Parquet file format for Databricks 17.3.
  *
  * DB-17.3 uses a fundamentally different DV mechanism than DB-14.3:
  * - No broadcastDvMap / broadcastHadoopConf
- * - Per-file DV via PartitionedFile.otherConstantMetadataColumnValues
+ * - Per-file DV via PartitionedFile.otherConstantMetadataColumnValues or TahoeFileIndex metadata
  * - Constructor takes (protocol, metadata, ...) instead of (relation, columnMappingMode, ...)
- *
- * This first DB-17.3 Delta PR supports only the base Delta Parquet scan shape. DV,
- * row-index, and row-tracking metadata scans are tagged as CPU fallback until those
- * reader fields are ported.
  */
 case class GpuDeltaParquetFileFormat(
+    @transient relation: HadoopFsRelation,
     protocol: Protocol,
     metadata: Metadata,
+    generateRowIndexFilterId: Boolean = false,
+    generateRowIndexFilterColumn: Boolean = false,
+    generateDeltaFileInScanId: Boolean = false,
+    nullableRowTrackingConstantFields: Boolean = false,
+    nullableRowTrackingGeneratedFields: Boolean = false,
+    optimizationsEnabled: Boolean = true,
     tablePath: Option[String] = None,
     isCDCRead: Boolean = false
-  ) extends GpuDeltaParquetFileFormatBase {
-
-  override val columnMappingMode: DeltaColumnMappingMode = metadata.columnMappingMode
-  override val referenceSchema: StructType = metadata.schema
-
-  if (columnMappingMode == IdMapping) {
-    val requiredReadConf = SQLConf.PARQUET_FIELD_ID_READ_ENABLED
-    require(TrampolineConnectShims.getActiveSession
-      .sessionState.conf.getConf(requiredReadConf),
-      s"${requiredReadConf.key} must be enabled to support Delta id column mapping mode")
-    val requiredWriteConf = SQLConf.PARQUET_FIELD_ID_WRITE_ENABLED
-    require(TrampolineConnectShims.getActiveSession
-      .sessionState.conf.getConf(requiredWriteConf),
-      s"${requiredWriteConf.key} must be enabled to support Delta id column mapping mode")
-  }
-
-  override def isSplitable(
-      sparkSession: SparkSession,
-      options: Map[String, String],
-      path: Path): Boolean = false
-
-  override def buildReaderWithPartitionValuesAndMetrics(
-      sparkSession: SparkSession,
-      dataSchema: StructType,
-      partitionSchema: StructType,
-      requiredSchema: StructType,
-      filters: Seq[Filter],
-      options: Map[String, String],
-      hadoopConf: Configuration,
-      metrics: Map[String, GpuMetric])
-  : PartitionedFile => Iterator[InternalRow] = {
-    // This first DB-17.3 Delta PR only supports the base Parquet reader shape.
-    // DV and row-tracking scans are tagged as CPU fallback in tagSupportForGpuFileSourceScan.
-    super.buildReaderWithPartitionValuesAndMetrics(
-      sparkSession,
-      dataSchema,
-      partitionSchema,
-      requiredSchema,
-      filters,
-      options,
-      hadoopConf,
-      metrics)
-  }
-}
+  ) extends GpuDeltaParquetFileFormatDV(
+    relation,
+    protocol,
+    metadata,
+    nullableRowTrackingConstantFields,
+    nullableRowTrackingGeneratedFields,
+    optimizationsEnabled,
+    tablePath,
+    isCDCRead,
+    generateRowIndexFilterId || generateRowIndexFilterColumn || tablePath.isDefined)
 
 object GpuDeltaParquetFileFormat {
+  private[delta] val EDGE_COMPUTED_COLUMN_SKIP_ROW =
+    "_databricks_internal_edge_computed_column_skip_row"
+
   def tagSupportForGpuFileSourceScan(meta: SparkPlanMeta[FileSourceScanExec]): Unit = {
     val requiredSchema = meta.wrapped.requiredSchema
-    if (requiredSchema.exists(_.name.startsWith("_databricks_internal"))) {
+    if (requiredSchema.exists { field =>
+      field.name.startsWith("_databricks_internal") &&
+        field.name != EDGE_COMPUTED_COLUMN_SKIP_ROW
+    }) {
       meta.willNotWorkOnGpu(
         s"reading metadata columns starting with prefix _databricks_internal is not supported")
     }
-    // Keep DB-17.3 DV and row-tracking metadata scans on CPU until those reader fields are
-    // explicitly ported into the GPU Delta file format.
     val format = meta.wrapped.relation.fileFormat.asInstanceOf[DeltaParquetFileFormat]
-    if (format.tablePath.isDefined) {
-      meta.willNotWorkOnGpu("deletion vector reads are not yet supported for DB-17.3")
-    }
-    if (format.generateRowIndexFilterId) {
-      meta.willNotWorkOnGpu("Delta row-index filter IDs are not supported on GPU for DB-17.3")
-    }
-    if (format.generateRowIndexFilterColumn) {
+    if (format.isCDCRead && format.tablePath.isDefined) {
       meta.willNotWorkOnGpu(
-        "Delta row-index filter columns are not supported on GPU for DB-17.3")
+        "CDC reads with deletion vectors are not yet supported on GPU for DB-17.3")
     }
     if (format.generateDeltaFileInScanId) {
       meta.willNotWorkOnGpu(
@@ -125,10 +84,6 @@ object GpuDeltaParquetFileFormat {
       meta.willNotWorkOnGpu(
         "nullable Delta row-tracking generated fields are not supported on GPU for DB-17.3")
     }
-    if (!format.optimizationsEnabled) {
-      meta.willNotWorkOnGpu(
-        "Delta scans with DB-17.3 optimizations disabled are not supported on GPU")
-    }
   }
 
   /**
@@ -137,10 +92,19 @@ object GpuDeltaParquetFileFormat {
    */
   def convertToGpu(relation: HadoopFsRelation): GpuDeltaParquetFileFormat = {
     val fmt = relation.fileFormat.asInstanceOf[DeltaParquetFileFormat]
+    val dvEnabled =
+      fmt.generateRowIndexFilterId || fmt.generateRowIndexFilterColumn || fmt.tablePath.isDefined
     GpuDeltaParquetFileFormat(
-      fmt.protocol,
-      fmt.metadata,
-      fmt.tablePath,
-      fmt.isCDCRead)
+      relation = relation,
+      protocol = fmt.protocol,
+      metadata = fmt.metadata,
+      generateRowIndexFilterId = fmt.generateRowIndexFilterId,
+      generateRowIndexFilterColumn = fmt.generateRowIndexFilterColumn,
+      generateDeltaFileInScanId = fmt.generateDeltaFileInScanId,
+      nullableRowTrackingConstantFields = fmt.nullableRowTrackingConstantFields,
+      nullableRowTrackingGeneratedFields = fmt.nullableRowTrackingGeneratedFields,
+      optimizationsEnabled = if (dvEnabled) false else fmt.optimizationsEnabled,
+      tablePath = fmt.tablePath,
+      isCDCRead = fmt.isCDCRead)
   }
 }

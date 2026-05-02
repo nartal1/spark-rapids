@@ -21,9 +21,25 @@ from marks import allow_non_gpu, delta_lake, ignore_order
 from parquet_test import reader_opt_confs_no_native
 from spark_session import with_cpu_session, with_gpu_session, is_databricks_runtime, \
     is_spark_320_or_later, is_spark_340_or_later, supports_delta_lake_deletion_vectors, is_spark_401_or_later, \
-    is_before_spark_353
+    is_before_spark_353, is_databricks173_or_later
 
 _conf = {'spark.rapids.sql.explain': 'ALL'}
+
+
+def _assert_db173_gpu_delta_scan_if_enabled(spark, df):
+    if is_databricks173_or_later() and \
+            str(spark.conf.get("spark.rapids.sql.enabled", "false")).lower() == "true":
+        plan = df._jdf.queryExecution().executedPlan()
+        callback = spark._sc._jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback
+        has_gpu_scan = any(
+            callback.contains(plan, scan)
+            for scan in ["GpuFileSourceScanExec", "GpuFileGpuScan"])
+        assert has_gpu_scan, str(plan)
+    return df
+
+
+def _delta_sql_with_gpu_scan_assert(spark, sql):
+    return _assert_db173_gpu_delta_scan_if_enabled(spark, spark.sql(sql))
 
 @delta_lake
 @allow_non_gpu('FileSourceScanExec')
@@ -118,7 +134,7 @@ def do_test_delta_deletion_vector_read(data_path, use_cdf, conf, test_sql, post_
     verify_files_and_row_groups()
 
     assert_gpu_and_cpu_are_equal_collect(
-        lambda spark: spark.sql(test_sql),
+        lambda spark: _delta_sql_with_gpu_scan_assert(spark, test_sql),
         conf=conf)
 
 
@@ -258,7 +274,8 @@ def test_delta_deletion_vector_multithreaded_read_partitioned_table(
     with_cpu_session(setup_tables, conf=conf)
 
     assert_gpu_and_cpu_are_equal_collect(
-        lambda spark: spark.sql("SELECT * FROM delta.`{}`".format(data_path)),
+        lambda spark: _delta_sql_with_gpu_scan_assert(
+            spark, "SELECT * FROM delta.`{}`".format(data_path)),
         conf=conf)
 
 
@@ -319,7 +336,8 @@ def do_test_scan_split(spark_tmp_path, enable_deletion_vectors, expected_num_par
         read_conf = copy_and_update(read_conf, conf)
 
     def get_num_partitions(spark):
-        df = spark.sql("SELECT * from delta.`{}`".format(data_path))
+        df = _delta_sql_with_gpu_scan_assert(
+            spark, "SELECT * from delta.`{}`".format(data_path))
         return df.rdd.getNumPartitions()
     num_partitions = with_gpu_session(get_num_partitions, conf=read_conf)
     assert num_partitions == expected_num_partitions, f"Expected {expected_num_partitions} partitions for split read"
@@ -346,8 +364,8 @@ def test_delta_scan_split_with_DV_enabled_with_no_DV(spark_tmp_path):
 @allow_non_gpu(*delta_meta_allow)
 @delta_lake
 @pytest.mark.parametrize("pushdown_dv_predicate", [True, False], ids=idfn)
-@pytest.mark.skipif(is_databricks_runtime(),
-                    reason="Deletion vector scan is not supported on Databricks")
+@pytest.mark.skipif(is_databricks_runtime() and not is_databricks173_or_later(),
+                    reason="Deletion vector scan is not supported on Databricks before 17.3")
 @pytest.mark.skipif(is_before_spark_353(),
                     reason="Spark-RAPIDS supports scan with deletion vectors starting in Spark 3.5.3")
 def test_delta_scan_split_with_DV_enabled_with_DVs(spark_tmp_path, pushdown_dv_predicate):
@@ -357,7 +375,8 @@ def test_delta_scan_split_with_DV_enabled_with_DVs(spark_tmp_path, pushdown_dv_p
     # The cuDF-based reader (GpuDeltaParquetFileFormat2), which is used when dv_predicate_pushdown is True, support the file split,
     # whereas the scala reader (GpuDeltaParquetFileFormat) does not support it.
     # So we expect 2 partitions when dv_predicate_pushdown is True, and 1 partition when it is False.
-    expected_num_partitions = 2 if pushdown_dv_predicate else 1
+    expected_num_partitions = 1 if is_databricks173_or_later() else (
+        2 if pushdown_dv_predicate else 1)
     conf = {"spark.rapids.sql.delta.deletionVectors.predicatePushdown.enabled": f"{pushdown_dv_predicate}"}
     do_test_scan_split(spark_tmp_path, enable_deletion_vectors=True, expected_num_partitions=expected_num_partitions, post_setup_table_func=do_delete, conf=conf)
 
@@ -534,7 +553,8 @@ def test_delta_deletion_vector_coalescing_partitioned_table(
     with_cpu_session(setup_tables, conf=conf)
 
     assert_gpu_and_cpu_are_equal_collect(
-        lambda spark: spark.sql(f"SELECT * FROM delta.`{data_path}`"),
+        lambda spark: _delta_sql_with_gpu_scan_assert(
+            spark, f"SELECT * FROM delta.`{data_path}`"),
         conf=conf)
 
 
@@ -571,7 +591,8 @@ def test_delta_deletion_vector_mixed_dv_no_dv(spark_tmp_path, reader_type, dv_pr
     with_cpu_session(setup_tables, conf=conf)
 
     assert_gpu_and_cpu_are_equal_collect(
-        lambda spark: spark.sql(f"SELECT * FROM delta.`{data_path}`"),
+        lambda spark: _delta_sql_with_gpu_scan_assert(
+            spark, f"SELECT * FROM delta.`{data_path}`"),
         conf=conf)
 
 
