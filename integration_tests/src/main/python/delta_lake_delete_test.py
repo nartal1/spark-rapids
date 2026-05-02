@@ -207,7 +207,11 @@ def test_delta_deletion_vector_read_drop_row_group(spark_tmp_path, reader_type):
 
     with_cpu_session(write_func(data_path), conf=enable_conf)
 
-    assert_gpu_and_cpu_are_equal_collect(read_parquet_sql(data_path, lrg_min_value), conf={"spark.rapids.sql.format.parquet.reader.type": reader_type})
+    assert_gpu_and_cpu_are_equal_collect(
+        read_parquet_sql(data_path, lrg_min_value),
+        conf={"spark.rapids.sql.format.parquet.reader.type": reader_type,
+              # Disable AQE temporarily until https://github.com/NVIDIA/spark-rapids/issues/14319 is resolved.
+              "spark.sql.adaptive.enabled": "false"})
 
 @allow_non_gpu("SerializeFromObjectExec", "DeserializeToObjectExec",
                "FilterExec", "MapElementsExec", "ProjectExec")
