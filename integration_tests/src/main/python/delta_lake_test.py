@@ -375,8 +375,7 @@ def test_delta_scan_split_with_DV_enabled_with_DVs(spark_tmp_path, pushdown_dv_p
     # The cuDF-based reader (GpuDeltaParquetFileFormat2), which is used when dv_predicate_pushdown is True, support the file split,
     # whereas the scala reader (GpuDeltaParquetFileFormat) does not support it.
     # So we expect 2 partitions when dv_predicate_pushdown is True, and 1 partition when it is False.
-    expected_num_partitions = 1 if is_databricks173_or_later() else (
-        2 if pushdown_dv_predicate else 1)
+    expected_num_partitions = 2 if pushdown_dv_predicate else 1
     conf = {"spark.rapids.sql.delta.deletionVectors.predicatePushdown.enabled": f"{pushdown_dv_predicate}"}
     do_test_scan_split(spark_tmp_path, enable_deletion_vectors=True, expected_num_partitions=expected_num_partitions, post_setup_table_func=do_delete, conf=conf)
 
@@ -700,7 +699,7 @@ def test_delta_filter_out_metadata_col(spark_tmp_path):
 
     def read_table(spark):
         df = spark.sql(f"SELECT * FROM delta.`{data_path}`")
-        assert "__delta_internal_is_row_deleted" in df._sc._jvm.PythonSQLUtils.explainString(df._jdf.queryExecution(), "extended")
+        assert "__delta_internal_is_row_deleted" in str(df._jdf.queryExecution().executedPlan())
         return df
 
     with_cpu_session(create_delta)
@@ -718,8 +717,8 @@ def test_delta_filter_out_metadata_col(spark_tmp_path):
 ], ids=["one_col", "two_cols"])
 @pytest.mark.skipif(is_before_spark_353(),
                     reason="Spark-RAPIDS supports scan with deletion vectors starting in Spark 3.5.3")
-@pytest.mark.skipif(is_databricks_runtime(),
-                    reason="Deletion vector scan is not supported on Databricks")
+@pytest.mark.skipif(is_databricks_runtime() and not is_databricks173_or_later(),
+                    reason="Deletion vector scan is not supported on Databricks before 17.3")
 def test_delta_deletion_vector_native_footer_multi_row_group(spark_tmp_path, parquet_reader_type,
                                                              footer_type, query):
     """
@@ -775,8 +774,8 @@ def test_delta_deletion_vector_native_footer_multi_row_group(spark_tmp_path, par
 @pytest.mark.parametrize("footer_type", ["NATIVE", "JAVA"], ids=idfn)
 @pytest.mark.skipif(is_before_spark_353(),
                     reason="Spark-RAPIDS supports scan with deletion vectors starting in Spark 3.5.3")
-@pytest.mark.skipif(is_databricks_runtime(),
-                    reason="Deletion vector scan is not supported on Databricks")
+@pytest.mark.skipif(is_databricks_runtime() and not is_databricks173_or_later(),
+                    reason="Deletion vector scan is not supported on Databricks before 17.3")
 def test_delta_deletion_vector_native_footer_multi_row_group_count_star(
         spark_tmp_path, parquet_reader_type, footer_type):
     """
