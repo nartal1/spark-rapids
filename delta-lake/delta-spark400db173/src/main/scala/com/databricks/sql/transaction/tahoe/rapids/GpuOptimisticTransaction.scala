@@ -130,7 +130,7 @@ class GpuOptimisticTransaction(
       additionalConstraints: Seq[Constraint],
       isCDCWritePhase: Boolean,
       context: Option[String]): Seq[FileAction] = {
-    if (isLiquidClustering || isCDCWritePhase) {
+    if (isCDCWritePhase) {
       super.writeFiles(inputData, writeOptions, isOptimize, isLiquidClustering,
         additionalConstraints, isCDCWritePhase, context)
     } else {
@@ -156,7 +156,7 @@ class GpuOptimisticTransaction(
       isCDCWritePhase: Boolean,
       context: Option[String],
       trailing: Boolean): (Seq[FileAction], QueryExecution) = {
-    if (isLiquidClustering || isCDCWritePhase) {
+    if (isCDCWritePhase) {
       super.writeFilesAndGetQueryExecution(
         inputData, writeOptions, isOptimize, isLiquidClustering,
         additionalConstraints, isCDCWritePhase, context, trailing)
@@ -180,30 +180,24 @@ class GpuOptimisticTransaction(
       additionalConstraints: Seq[Constraint],
       context: Option[String],
       trailing: Boolean): (Seq[FileAction], SparkPlan) = {
-    if (isLiquidClustering) {
-      super.writeFilesAndGetExecutedPlan(
-        inputData, writeOptions, isOptimize, isLiquidClustering,
-        additionalConstraints, context, trailing)
-    } else {
-      val deltaOpts = writeOptions match {
-        case Left(opt) => opt
-        case Right(opts) => Option(opts).flatMap(_.deltaOptions)
-      }
-      val forcePreserveInputOrder = writeOptions match {
-        case Left(_) => false
-        case Right(opts) => opts.forcePreserveInputOrder
-      }
-      val (fileActions, qe) =
-        gpuWriteFiles(
-          inputData,
-          deltaOpts,
-          additionalConstraints,
-          Some(isOptimize),
-          trailing,
-          forcePreserveInputOrder,
-          context)
-      (fileActions, qe.executedPlan)
+    val deltaOpts = writeOptions match {
+      case Left(opt) => opt
+      case Right(opts) => Option(opts).flatMap(_.deltaOptions)
     }
+    val forcePreserveInputOrder = writeOptions match {
+      case Left(_) => false
+      case Right(opts) => opts.forcePreserveInputOrder
+    }
+    val (fileActions, qe) =
+      gpuWriteFiles(
+        inputData,
+        deltaOpts,
+        additionalConstraints,
+        Some(isOptimize),
+        trailing,
+        forcePreserveInputOrder,
+        context)
+    (fileActions, qe.executedPlan)
   }
 }
 
@@ -281,6 +275,7 @@ private object GpuAutoCompact extends PostCommitHook with DeltaLogging with Seri
           txn.deltaLog.update(catalogTableOpt = txn.catalogTable),
           txn.catalogTable,
           request.targetPartitionsPredicate,
+          Nil,
           optimizeContext,
           isAutoCompact = true).optimize()
         val metrics = rows.map(_.getAs[OptimizeMetrics](1))

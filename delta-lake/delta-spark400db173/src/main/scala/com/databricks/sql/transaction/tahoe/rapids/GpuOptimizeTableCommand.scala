@@ -21,8 +21,8 @@
 
 package com.databricks.sql.transaction.tahoe.rapids
 
-import com.databricks.sql.io.skipping.liquid.ClusteredTableUtils
-import com.databricks.sql.transaction.tahoe.Snapshot
+import com.databricks.sql.io.skipping.liquid.{ClusteredTableUtils, ClusteringColumnInfo}
+import com.databricks.sql.transaction.tahoe.{DeltaErrors, Snapshot}
 import com.databricks.sql.transaction.tahoe.commands.{DeltaCommand, DeltaOptimizeContext}
 import com.databricks.sql.transaction.tahoe.commands.optimize.OptimizeMetrics
 
@@ -61,11 +61,13 @@ case class GpuOptimizeTableCommand(
       predicates
     }
 
+    val zOrderByColumns = zOrderBy.map(_.name)
     new GpuOptimizeExecutor(
       sparkSession,
       snapshot,
       table.catalogTable,
       partitionPredicates,
+      zOrderByColumns,
       optimizeContext).optimize()
   }
 
@@ -80,12 +82,19 @@ case class GpuOptimizeTableCommand(
       throw new IllegalStateException(
         "Delta OPTIMIZE with deletion-vector cleanup should not run on GPU")
     }
-    if (optimizeContext.isFull) {
-      throw new IllegalStateException("Delta OPTIMIZE FULL should not run on GPU")
+    val isClusteredTable = ClusteredTableUtils.isSupported(snapshot.protocol)
+    if (isClusteredTable) {
+      if (userPartitionPredicates.nonEmpty) {
+        throw DeltaErrors.clusteringWithPartitionPredicatesException(userPartitionPredicates)
+      }
+      if (zOrderBy.nonEmpty) {
+        throw DeltaErrors.clusteringWithZOrderByException(zOrderBy)
+      }
     }
-    if (ClusteredTableUtils.isSupported(snapshot.protocol)) {
-      throw new IllegalStateException(
-        "Delta OPTIMIZE on liquid clustered tables should not run on GPU")
+
+    lazy val clusteringColumns = ClusteringColumnInfo.extractLogicalNames(snapshot)
+    if (optimizeContext.isFull && (!isClusteredTable || clusteringColumns.isEmpty)) {
+      throw DeltaErrors.optimizeFullNotSupportedException()
     }
   }
 }
@@ -113,11 +122,13 @@ case class GpuOptimizeTableCommandEdge(
 
     verifyPartitionPredicates(sparkSession, snapshot.metadata.partitionColumns, predicates)
 
+    val zOrderByColumns = zOrderBy.map(_.name)
     new GpuOptimizeExecutor(
       sparkSession,
       snapshot,
       table.catalogTable,
       predicates,
+      zOrderByColumns,
       DeltaOptimizeContext(isFull = isFull)).optimize()
   }
 
@@ -125,12 +136,19 @@ case class GpuOptimizeTableCommandEdge(
     if (zOrderBy.nonEmpty) {
       throw new IllegalStateException("Z-Order optimize should not run on GPU")
     }
-    if (isFull) {
-      throw new IllegalStateException("Delta OPTIMIZE FULL should not run on GPU")
+    val isClusteredTable = ClusteredTableUtils.isSupported(snapshot.protocol)
+    if (isClusteredTable) {
+      if (predicates.nonEmpty) {
+        throw DeltaErrors.liquidClusteringWithPartitionPredicatesException(predicates)
+      }
+      if (zOrderBy.nonEmpty) {
+        throw DeltaErrors.clusteringWithZOrderByException(zOrderBy)
+      }
     }
-    if (ClusteredTableUtils.isSupported(snapshot.protocol)) {
-      throw new IllegalStateException(
-        "Delta OPTIMIZE on liquid clustered tables should not run on GPU")
+
+    lazy val clusteringColumns = ClusteringColumnInfo.extractLogicalNames(snapshot)
+    if (isFull && (!isClusteredTable || clusteringColumns.isEmpty)) {
+      throw DeltaErrors.optimizeFullNotSupportedException()
     }
   }
 }

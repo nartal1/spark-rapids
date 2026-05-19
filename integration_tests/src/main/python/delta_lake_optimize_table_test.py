@@ -30,9 +30,7 @@ _optimize_deletion_vector_values = [False] if is_databricks173_or_later() else \
     deletion_vector_values_with_350DB143_xfail_reasons(
         enabled_xfail_reason='https://github.com/NVIDIA/spark-rapids/issues/12042')
 
-_optimize_clustered_deletion_vector_values = deletion_vector_values if is_databricks173_or_later() else \
-    deletion_vector_values_with_350DB143_xfail_reasons(
-        enabled_xfail_reason='https://github.com/NVIDIA/spark-rapids/issues/12042')
+_optimize_clustered_deletion_vector_values = _optimize_deletion_vector_values
 
 
 def _with_gpu_session_no_test(func, conf):
@@ -94,8 +92,9 @@ def _read_sorted(spark, path):
     return df.sort(df.columns)
 
 
-def _optimize_sql(path):
-    return f"OPTIMIZE delta.`{path}`"
+def _optimize_sql(path, full=False):
+    suffix = " FULL" if full else ""
+    return f"OPTIMIZE delta.`{path}`{suffix}"
 
 
 def _setup_tables(enable_deletion_vectors, cpu_path, gpu_path, partition_columns, clustering_columns, conf):
@@ -108,7 +107,7 @@ def _setup_tables(enable_deletion_vectors, cpu_path, gpu_path, partition_columns
 
 
 def _assert_optimize_parity(enable_deletion_vectors, spark_tmp_path, partition_columns=None, clustering_columns=None,
-                            conf=_optimize_conf, compare_delta_logs=True):
+                            conf=_optimize_conf, compare_delta_logs=True, full=False):
     data_path = spark_tmp_path + "/DELTA_OPTIMIZE"
     cpu_path = data_path + "/CPU"
     gpu_path = data_path + "/GPU"
@@ -116,8 +115,8 @@ def _assert_optimize_parity(enable_deletion_vectors, spark_tmp_path, partition_c
     _setup_tables(enable_deletion_vectors, cpu_path, gpu_path, partition_columns, clustering_columns, conf)
 
     # Run OPTIMIZE on each table and verify the returned path matches the target
-    cpu_result = with_cpu_session(lambda s: s.sql(_optimize_sql(cpu_path)).collect(), conf=conf)
-    gpu_result = with_gpu_session(lambda s: s.sql(_optimize_sql(gpu_path)).collect(), conf=conf)
+    cpu_result = with_cpu_session(lambda s: s.sql(_optimize_sql(cpu_path, full)).collect(), conf=conf)
+    gpu_result = with_gpu_session(lambda s: s.sql(_optimize_sql(gpu_path, full)).collect(), conf=conf)
     # Validate the returned path for each run; metrics object is not stable across JVMs
     # Compare only the suffix to avoid scheme differences like file: vs absolute path
     assert str(cpu_result[0][0]).rstrip('/').endswith('/CPU')
@@ -193,11 +192,25 @@ def test_delta_optimize_partitioned_table(spark_tmp_path, enable_deletion_vector
                             compare_delta_logs=False)
 
 
+@allow_non_gpu(*delta_meta_allow)
 @delta_lake
-@allow_non_gpu('ExecutedCommandExec', *delta_meta_allow)
+@ignore_order
 @pytest.mark.skipif(is_before_spark_353(), reason="Liquid clustering requires Delta 3.3+")
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks173_or_later(),
                     reason="OPTIMIZE table command is supported for Databricks 17.3+")
 @pytest.mark.parametrize("enable_deletion_vectors", _optimize_clustered_deletion_vector_values, ids=idfn)
 def test_delta_optimize_clustered_table(spark_tmp_path, enable_deletion_vectors):
-    _assert_optimize_fallback(enable_deletion_vectors, spark_tmp_path, clustering_columns=["a"])
+    _assert_optimize_parity(enable_deletion_vectors, spark_tmp_path, clustering_columns=["a"],
+                            compare_delta_logs=False)
+
+
+@allow_non_gpu(*delta_meta_allow)
+@delta_lake
+@ignore_order
+@pytest.mark.skipif(is_before_spark_353(), reason="Liquid clustering requires Delta 3.3+")
+@pytest.mark.skipif(is_databricks_runtime() and not is_databricks173_or_later(),
+                    reason="OPTIMIZE FULL is supported for Databricks 17.3+")
+@pytest.mark.parametrize("enable_deletion_vectors", _optimize_clustered_deletion_vector_values, ids=idfn)
+def test_delta_optimize_full_clustered_table(spark_tmp_path, enable_deletion_vectors):
+    _assert_optimize_parity(enable_deletion_vectors, spark_tmp_path, clustering_columns=["a"],
+                            compare_delta_logs=False, full=True)

@@ -40,12 +40,19 @@ from delta_lake_merge_test import delta_merge_enabled_conf
 from delta_lake_update_test import delta_update_enabled_conf
 from delta_lake_utils import delta_meta_allow, \
     delta_writes_enabled_conf, delta_write_fallback_allow, assert_gpu_and_cpu_delta_logs_equivalent
-from marks import allow_non_gpu, delta_lake, ignore_order, disable_ansi_mode, allow_non_gpu_conditional
+from marks import allow_non_gpu, delta_lake, ignore_order, disable_ansi_mode, \
+    allow_non_gpu_conditional
 from spark_session import is_databricks133_or_later, is_spark_353_or_later, is_spark_356_or_later, \
-    is_before_spark_353, with_cpu_session, is_spark_400_or_later
+    is_before_spark_353, with_cpu_session, is_spark_400_or_later, is_databricks173_or_later
+
+
+dbr173_delta_ctas_fallback_allow = \
+    "AtomicCreateTableAsSelectExec,EmptyRelationExec,AppendDataExecV1," + delta_write_fallback_allow
+dbr173_liquid_clustering_merge_fallback_allow = "HashAggregateExec,ExecutedCommandExec"
 
 
 @allow_non_gpu(*delta_meta_allow)
+@allow_non_gpu_conditional(is_databricks173_or_later(), dbr173_delta_ctas_fallback_allow)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -213,6 +220,8 @@ def test_delta_insert_overwrite_static_sql_liquid_clustering(spark_tmp_path,
                     reason="Delta Lake liquid clustering is only supported on Databricks 13.3+")
 @pytest.mark.skipif(not is_spark_353_or_later(),
                     reason="Create table with cluster by is only supported on delta 3.1+")
+@pytest.mark.skipif(is_databricks173_or_later(),
+                    reason="DBR 17.3 rejects dynamic overwrite on liquid clustered tables")
 def test_delta_insert_overwrite_dynamic_sql_liquid_clustering(spark_tmp_path,
                                                                       spark_tmp_table_factory):
     def write_func(spark, path):
@@ -328,7 +337,8 @@ def test_delta_update_sql_liquid_clustering(spark_tmp_path,
 
 
 @allow_non_gpu(*delta_meta_allow)
-@allow_non_gpu_conditional(is_spark_400_or_later(), "HashAggregateExec")
+@allow_non_gpu_conditional(is_spark_400_or_later(),
+                           dbr173_liquid_clustering_merge_fallback_allow)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -452,6 +462,9 @@ def test_delta_append_df_liquid_clustering(spark_tmp_path, spark_tmp_table_facto
 def test_delta_insert_overwrite_df_liquid_clustering(spark_tmp_path,
                                                               spark_tmp_table_factory,
                                                               overwrite_mode):
+    if is_databricks173_or_later() and overwrite_mode == "DYNAMIC":
+        pytest.skip("DBR 17.3 rejects dynamic overwrite on liquid clustered tables")
+
     def write_func(spark, path):
         table_name = spark_tmp_table_factory.get()
         create_clustered_delta_table_df(table_name, path)

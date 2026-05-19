@@ -16,7 +16,6 @@
 
 package com.nvidia.spark.rapids.delta.shims
 
-import com.databricks.sql.io.skipping.liquid.ClusteredTableUtils
 import com.databricks.sql.transaction.tahoe.DeltaLog
 import com.databricks.sql.transaction.tahoe.commands.DeletionVectorUtils
 import com.nvidia.spark.rapids.RapidsMeta
@@ -30,8 +29,7 @@ object OptimizeTableCommandMetaShim {
       deltaLog,
       cmd.zOrderBy.nonEmpty,
       cmd.optimizeContext.reorg.nonEmpty,
-      cmd.optimizeContext.maxDeletedRowsRatio.nonEmpty,
-      cmd.optimizeContext.isFull)
+      cmd.optimizeContext.maxDeletedRowsRatio.nonEmpty)
   }
 
   def tagForGpu(meta: OptimizeTableCommandEdgeMeta, deltaLog: DeltaLog): Unit = {
@@ -41,8 +39,7 @@ object OptimizeTableCommandMetaShim {
       deltaLog,
       cmd.zOrderBy.nonEmpty,
       reorg = false,
-      optimizeDeletedRows = false,
-      cmd.isFull)
+      optimizeDeletedRows = false)
   }
 
   private def tagForGpu(
@@ -50,9 +47,8 @@ object OptimizeTableCommandMetaShim {
       deltaLog: DeltaLog,
       hasZOrderBy: Boolean,
       reorg: Boolean,
-      optimizeDeletedRows: Boolean,
-      isFull: Boolean): Unit = {
-    tagForGpuCommon(meta, deltaLog, hasZOrderBy, reorg, optimizeDeletedRows, isFull)
+      optimizeDeletedRows: Boolean): Unit = {
+    tagForGpuCommon(meta, deltaLog, hasZOrderBy, reorg, optimizeDeletedRows)
   }
 
   private def tagForGpu(
@@ -60,9 +56,8 @@ object OptimizeTableCommandMetaShim {
       deltaLog: DeltaLog,
       hasZOrderBy: Boolean,
       reorg: Boolean,
-      optimizeDeletedRows: Boolean,
-      isFull: Boolean): Unit = {
-    tagForGpuCommon(meta, deltaLog, hasZOrderBy, reorg, optimizeDeletedRows, isFull)
+      optimizeDeletedRows: Boolean): Unit = {
+    tagForGpuCommon(meta, deltaLog, hasZOrderBy, reorg, optimizeDeletedRows)
   }
 
   private def tagForGpuCommon(
@@ -70,8 +65,7 @@ object OptimizeTableCommandMetaShim {
       deltaLog: DeltaLog,
       hasZOrderBy: Boolean,
       reorg: Boolean,
-      optimizeDeletedRows: Boolean,
-      isFull: Boolean): Unit = {
+      optimizeDeletedRows: Boolean): Unit = {
     val snapshot = deltaLog.unsafeVolatileSnapshot
     if (DeletionVectorUtils.deletionVectorsWritable(snapshot)) {
       meta.willNotWorkOnGpu("Deletion vector writes are not supported on GPU")
@@ -80,9 +74,5 @@ object OptimizeTableCommandMetaShim {
     if (reorg) meta.willNotWorkOnGpu("Delta OPTIMIZE REORG is not supported on GPU")
     if (optimizeDeletedRows) meta.willNotWorkOnGpu(
       "Delta OPTIMIZE with deletion-vector cleanup is not supported on GPU")
-    if (isFull) meta.willNotWorkOnGpu("Delta OPTIMIZE FULL is not supported on GPU")
-    if (ClusteredTableUtils.isSupported(snapshot.protocol)) {
-      meta.willNotWorkOnGpu("Delta OPTIMIZE on liquid clustered tables is not supported on GPU")
-    }
   }
 }
