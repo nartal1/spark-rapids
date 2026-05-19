@@ -41,18 +41,23 @@ from delta_lake_update_test import delta_update_enabled_conf
 from delta_lake_utils import delta_meta_allow, \
     delta_writes_enabled_conf, delta_write_fallback_allow, assert_gpu_and_cpu_delta_logs_equivalent
 from marks import allow_non_gpu, delta_lake, ignore_order, disable_ansi_mode, \
-    allow_non_gpu_conditional
+    allow_non_gpu_conditional, allow_non_gpu_delta_write_if
 from spark_session import is_databricks133_or_later, is_spark_353_or_later, is_spark_356_or_later, \
     is_before_spark_353, with_cpu_session, is_spark_400_or_later, is_databricks173_or_later
 
 
 dbr173_delta_ctas_fallback_allow = \
     "AtomicCreateTableAsSelectExec,EmptyRelationExec,AppendDataExecV1," + delta_write_fallback_allow
-dbr173_liquid_clustering_merge_fallback_allow = "HashAggregateExec,ExecutedCommandExec"
+dbr173_liquid_clustering_merge_fallback_allow = \
+    "HashAggregateExec," + delta_write_fallback_allow
+dbr173_liquid_clustered_write_uses_cpu_fallback = \
+    "DBR 17.3 liquid clustered writes use Databricks CPU late-stage clustering"
 
 
 @allow_non_gpu(*delta_meta_allow)
 @allow_non_gpu_conditional(is_databricks173_or_later(), dbr173_delta_ctas_fallback_allow)
+@allow_non_gpu_delta_write_if(is_databricks173_or_later(),
+                              reason=dbr173_liquid_clustered_write_uses_cpu_fallback)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -118,6 +123,9 @@ def setup_clustered_table_sql(spark, path, table_name, view_name):
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(), delta_write_fallback_allow)
+@allow_non_gpu_delta_write_if(is_databricks173_or_later(),
+                              reason=dbr173_liquid_clustered_write_uses_cpu_fallback)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -153,6 +161,9 @@ def test_delta_rtas_sql_liquid_clustering(spark_tmp_path, spark_tmp_table_factor
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(), delta_write_fallback_allow)
+@allow_non_gpu_delta_write_if(is_databricks173_or_later(),
+                              reason=dbr173_liquid_clustered_write_uses_cpu_fallback)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -182,6 +193,9 @@ def test_delta_append_sql_liquid_clustering(spark_tmp_path, spark_tmp_table_fact
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(), delta_write_fallback_allow)
+@allow_non_gpu_delta_write_if(is_databricks173_or_later(),
+                              reason=dbr173_liquid_clustered_write_uses_cpu_fallback)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -214,6 +228,9 @@ def test_delta_insert_overwrite_static_sql_liquid_clustering(spark_tmp_path,
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(), delta_write_fallback_allow)
+@allow_non_gpu_delta_write_if(is_databricks173_or_later(),
+                              reason=dbr173_liquid_clustered_write_uses_cpu_fallback)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -248,6 +265,9 @@ def test_delta_insert_overwrite_dynamic_sql_liquid_clustering(spark_tmp_path,
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(), delta_write_fallback_allow)
+@allow_non_gpu_delta_write_if(is_databricks173_or_later(),
+                              reason=dbr173_liquid_clustered_write_uses_cpu_fallback)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -307,6 +327,8 @@ def do_test_delta_dml_sql_liquid_clustering(spark_tmp_path,
         conf=conf)
 
 @allow_non_gpu(*delta_meta_allow, delta_write_fallback_allow)
+@allow_non_gpu_delta_write_if(is_databricks173_or_later(),
+                              reason=dbr173_liquid_clustered_write_uses_cpu_fallback)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -321,6 +343,8 @@ def test_delta_delete_sql_liquid_clustering(spark_tmp_path, spark_tmp_table_fact
 
 @allow_non_gpu(*delta_meta_allow, delta_write_fallback_allow, "CreateTableExec",
                "AppendDataExecV1")
+@allow_non_gpu_delta_write_if(is_databricks173_or_later(),
+                              reason=dbr173_liquid_clustered_write_uses_cpu_fallback)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -339,6 +363,8 @@ def test_delta_update_sql_liquid_clustering(spark_tmp_path,
 @allow_non_gpu(*delta_meta_allow)
 @allow_non_gpu_conditional(is_spark_400_or_later(),
                            dbr173_liquid_clustering_merge_fallback_allow)
+@allow_non_gpu_delta_write_if(is_databricks173_or_later(),
+                              reason=dbr173_liquid_clustered_write_uses_cpu_fallback)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -427,6 +453,9 @@ def write_to_delta_table_df(spark, path, mode, opts= None):
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(), delta_write_fallback_allow)
+@allow_non_gpu_delta_write_if(is_databricks173_or_later(),
+                              reason=dbr173_liquid_clustered_write_uses_cpu_fallback)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -451,6 +480,9 @@ def test_delta_append_df_liquid_clustering(spark_tmp_path, spark_tmp_table_facto
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(), delta_write_fallback_allow)
+@allow_non_gpu_delta_write_if(is_databricks173_or_later(),
+                              reason=dbr173_liquid_clustered_write_uses_cpu_fallback)
 @delta_lake
 @ignore_order
 @pytest.mark.parametrize("overwrite_mode", ["STATIC", "DYNAMIC"],
@@ -482,6 +514,9 @@ def test_delta_insert_overwrite_df_liquid_clustering(spark_tmp_path,
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(), delta_write_fallback_allow)
+@allow_non_gpu_delta_write_if(is_databricks173_or_later(),
+                              reason=dbr173_liquid_clustered_write_uses_cpu_fallback)
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),

@@ -21,7 +21,7 @@
 
 package com.databricks.sql.transaction.tahoe.rapids
 
-import com.databricks.sql.transaction.tahoe.{DeltaLog, Snapshot}
+import com.databricks.sql.transaction.tahoe.{DeltaLog, DeltaOptions, Snapshot}
 import com.databricks.sql.transaction.tahoe.actions.FileAction
 import com.databricks.sql.transaction.tahoe.constraints.{Constraint, DeltaInvariantCheckerExec}
 import com.databricks.sql.transaction.tahoe.files.{TahoeBatchFileIndex, TransactionalWriteOptions}
@@ -30,7 +30,7 @@ import com.nvidia.spark.rapids.RapidsConf
 import org.apache.spark.sql.{Dataset, SparkSession}
 import org.apache.spark.sql.catalyst.catalog.CatalogTable
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
-import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.{QueryExecution, SparkPlan}
 import org.apache.spark.sql.execution.datasources.{HadoopFsRelation, LogicalRelation}
 import org.apache.spark.util.Clock
 
@@ -47,6 +47,65 @@ abstract class GpuOptimisticTransactionBase(
     DeltaInvariantCheckerExec(cpuPlan.session, cpuPlan, constraints)
   }
 
+  protected def cpuWriteFiles(
+      inputData: Dataset[_],
+      writeOptions: Option[DeltaOptions],
+      additionalConstraints: Seq[Constraint]): Seq[FileAction] =
+    GpuDeltaCpuFallback.withRapidsDisabled(inputData.sparkSession) {
+      super.writeFiles(inputData, writeOptions, additionalConstraints)
+    }
+
+  protected def cpuWriteFiles(
+      inputData: Dataset[_],
+      writeOptions: Option[DeltaOptions],
+      additionalConstraints: Seq[Constraint],
+      context: Option[String]): Seq[FileAction] =
+    GpuDeltaCpuFallback.withRapidsDisabled(inputData.sparkSession) {
+      super.writeFiles(inputData, writeOptions, additionalConstraints, context)
+    }
+
+  protected def cpuWriteFiles(
+      inputData: Dataset[_],
+      writeOptions: TransactionalWriteOptions,
+      isOptimize: Boolean,
+      isLiquidClustering: Boolean,
+      additionalConstraints: Seq[Constraint],
+      isCDCWritePhase: Boolean,
+      context: Option[String]): Seq[FileAction] =
+    GpuDeltaCpuFallback.withRapidsDisabled(inputData.sparkSession) {
+      super.writeFiles(inputData, writeOptions, isOptimize, isLiquidClustering,
+        additionalConstraints, isCDCWritePhase, context)
+    }
+
+  protected def cpuWriteFilesAndGetQueryExecution(
+      inputData: Dataset[_],
+      writeOptions: TransactionalWriteOptions,
+      isOptimize: Boolean,
+      isLiquidClustering: Boolean,
+      additionalConstraints: Seq[Constraint],
+      isCDCWritePhase: Boolean,
+      context: Option[String],
+      trailing: Boolean): (Seq[FileAction], QueryExecution) =
+    GpuDeltaCpuFallback.withRapidsDisabled(inputData.sparkSession) {
+      super.writeFilesAndGetQueryExecution(
+        inputData, writeOptions, isOptimize, isLiquidClustering,
+        additionalConstraints, isCDCWritePhase, context, trailing)
+    }
+
+  protected def cpuWriteFilesAndGetExecutedPlan(
+      inputData: Dataset[_],
+      writeOptions: Either[Option[DeltaOptions], TransactionalWriteOptions],
+      isOptimize: Boolean,
+      isLiquidClustering: Boolean,
+      additionalConstraints: Seq[Constraint],
+      context: Option[String],
+      trailing: Boolean): (Seq[FileAction], SparkPlan) =
+    GpuDeltaCpuFallback.withRapidsDisabled(inputData.sparkSession) {
+      super.writeFilesAndGetExecutedPlan(
+        inputData, writeOptions, isOptimize, isLiquidClustering,
+        additionalConstraints, context, trailing)
+    }
+
   override def writeFiles(
       inputData: Dataset[_],
       writeOptions: TransactionalWriteOptions,
@@ -56,7 +115,7 @@ abstract class GpuOptimisticTransactionBase(
       isCDCWritePhase: Boolean,
       context: Option[String]): Seq[FileAction] = {
     if (isLiquidClustering || isCDCWritePhase) {
-      super.writeFiles(inputData, writeOptions, isOptimize, isLiquidClustering,
+      cpuWriteFiles(inputData, writeOptions, isOptimize, isLiquidClustering,
         additionalConstraints, isCDCWritePhase, context)
     } else {
       writeFiles(inputData, writeOptions.deltaOptions, additionalConstraints)

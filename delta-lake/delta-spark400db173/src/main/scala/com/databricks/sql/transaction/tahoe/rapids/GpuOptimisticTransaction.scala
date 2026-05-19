@@ -21,7 +21,7 @@
 
 package com.databricks.sql.transaction.tahoe.rapids
 
-import com.databricks.sql.io.skipping.liquid.ClusteredTableUtils
+import com.databricks.sql.io.skipping.liquid.{ClusteredTableUtils, ClusteringColumnInfo}
 import com.databricks.sql.transaction.tahoe.{CommittedTransaction, DeltaLog, DeltaOptions, OptimizeExecutionObserver, Snapshot}
 import com.databricks.sql.transaction.tahoe.actions.FileAction
 import com.databricks.sql.transaction.tahoe.constraints.Constraint
@@ -62,6 +62,8 @@ class GpuOptimisticTransaction(
     this(deltaLog, Option.empty[CatalogTable], snapshot, rapidsConf)
   }
 
+  private var forceCpuWritePath = false
+
   def this(deltaLog: DeltaLog, rapidsConf: RapidsConf)(implicit clock: Clock) = {
     this(deltaLog, Option.empty[CatalogTable], deltaLog.update(), rapidsConf)
   }
@@ -69,6 +71,25 @@ class GpuOptimisticTransaction(
   override protected def normalizeGpuStatsColExpr(expr: Expression): Expression = {
     expr.transform {
       case rr: RuntimeReplaceable => rr.replacement
+    }
+  }
+
+  private def shouldUseCpuWritePath(
+      isOptimize: Boolean,
+      isLiquidClustering: Boolean): Boolean =
+    forceCpuWritePath || isLiquidClustering || (!isOptimize && isClusteredTableWrite)
+
+  private def isClusteredTableWrite: Boolean =
+    ClusteredTableUtils.isSupported(snapshot.protocol) &&
+      ClusteringColumnInfo.extractLogicalNames(snapshot).nonEmpty
+
+  private[rapids] def withCpuWritePath[T](f: => T): T = {
+    val oldForceCpuWritePath = forceCpuWritePath
+    forceCpuWritePath = true
+    try {
+      f
+    } finally {
+      forceCpuWritePath = oldForceCpuWritePath
     }
   }
 
@@ -124,14 +145,37 @@ class GpuOptimisticTransaction(
 
   override def writeFiles(
       inputData: Dataset[_],
+      writeOptions: Option[DeltaOptions],
+      additionalConstraints: Seq[Constraint]): Seq[FileAction] = {
+    if (shouldUseCpuWritePath(isOptimize = false, isLiquidClustering = false)) {
+      cpuWriteFiles(inputData, writeOptions, additionalConstraints)
+    } else {
+      super.writeFiles(inputData, writeOptions, additionalConstraints)
+    }
+  }
+
+  override def writeFiles(
+      inputData: Dataset[_],
+      writeOptions: Option[DeltaOptions],
+      additionalConstraints: Seq[Constraint],
+      context: Option[String]): Seq[FileAction] = {
+    if (shouldUseCpuWritePath(isOptimize = false, isLiquidClustering = false)) {
+      cpuWriteFiles(inputData, writeOptions, additionalConstraints, context)
+    } else {
+      super.writeFiles(inputData, writeOptions, additionalConstraints, context)
+    }
+  }
+
+  override def writeFiles(
+      inputData: Dataset[_],
       writeOptions: TransactionalWriteOptions,
       isOptimize: Boolean,
       isLiquidClustering: Boolean,
       additionalConstraints: Seq[Constraint],
       isCDCWritePhase: Boolean,
       context: Option[String]): Seq[FileAction] = {
-    if (isCDCWritePhase) {
-      super.writeFiles(inputData, writeOptions, isOptimize, isLiquidClustering,
+    if (shouldUseCpuWritePath(isOptimize, isLiquidClustering) || isCDCWritePhase) {
+      cpuWriteFiles(inputData, writeOptions, isOptimize, isLiquidClustering,
         additionalConstraints, isCDCWritePhase, context)
     } else {
       val (fileActions, _) =
@@ -156,8 +200,8 @@ class GpuOptimisticTransaction(
       isCDCWritePhase: Boolean,
       context: Option[String],
       trailing: Boolean): (Seq[FileAction], QueryExecution) = {
-    if (isCDCWritePhase) {
-      super.writeFilesAndGetQueryExecution(
+    if (shouldUseCpuWritePath(isOptimize, isLiquidClustering) || isCDCWritePhase) {
+      cpuWriteFilesAndGetQueryExecution(
         inputData, writeOptions, isOptimize, isLiquidClustering,
         additionalConstraints, isCDCWritePhase, context, trailing)
     } else {
@@ -180,6 +224,12 @@ class GpuOptimisticTransaction(
       additionalConstraints: Seq[Constraint],
       context: Option[String],
       trailing: Boolean): (Seq[FileAction], SparkPlan) = {
+    if (shouldUseCpuWritePath(isOptimize, isLiquidClustering)) {
+      return cpuWriteFilesAndGetExecutedPlan(
+        inputData, writeOptions, isOptimize, isLiquidClustering,
+        additionalConstraints, context, trailing)
+    }
+
     val deltaOpts = writeOptions match {
       case Left(opt) => opt
       case Right(opts) => Option(opts).flatMap(_.deltaOptions)
