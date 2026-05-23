@@ -22,7 +22,8 @@
 package com.nvidia.spark.rapids.delta
 
 import com.databricks.sql.execution.metric.IncrementMetric
-import com.databricks.sql.transaction.tahoe.{DeltaConfigs, DeltaOptions}
+import com.databricks.sql.transaction.tahoe.{DeltaConfigs, DeltaLog, DeltaOptions}
+import com.databricks.sql.transaction.tahoe.catalog.DeltaTableV2
 import com.databricks.sql.transaction.tahoe.DeltaParquetFileFormat
 import com.databricks.sql.transaction.tahoe.commands.WriteIntoDeltaEdge
 import com.databricks.sql.transaction.tahoe.coordinatedcommits.{
@@ -34,27 +35,73 @@ import com.databricks.sql.transaction.tahoe.rapids.{
   GpuDeltaV1Write,
   GpuWriteIntoDelta
 }
-import com.databricks.sql.transaction.tahoe.sources.DeltaSQLConf
+import com.databricks.sql.transaction.tahoe.sources.{DeltaDataSource, DeltaSQLConf}
 import com.nvidia.spark.rapids._
-import com.nvidia.spark.rapids.delta.shims.DeltaLogShim
-import com.nvidia.spark.rapids.shims.ShimPredicateHelper
+import com.nvidia.spark.rapids.delta.shims.{DB173LiquidClusteringFallback, DeltaLogShim}
+import com.nvidia.spark.rapids.shims.{GpuTypeShims, ShimPredicateHelper, ShimUnaryExecNode}
+import org.apache.hadoop.fs.Path
 
+import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, EqualTo, Expression, If, IsNotNull, Literal, Not}
 import org.apache.spark.sql.catalyst.plans.logical.TableSpec
 import org.apache.spark.sql.connector.write.V1Write
 import org.apache.spark.sql.execution.{FileSourceScanExec, FilterExec, ProjectExec, SparkPlan}
-import org.apache.spark.sql.execution.datasources.{FileFormat, HadoopFsRelation, LogicalRelation}
-import org.apache.spark.sql.execution.datasources.v2.{
-  AtomicCreateTableAsSelectExec,
-  AtomicReplaceTableAsSelectExec
+import org.apache.spark.sql.execution.command.ExecutedCommandExec
+import org.apache.spark.sql.execution.datasources.{
+  FileFormat,
+  HadoopFsRelation,
+  LogicalRelation,
+  SaveIntoDataSourceCommand
 }
-import org.apache.spark.sql.rapids.{GpuAnd, GpuEqualTo, GpuFileSourceScanExec, GpuNot}
+import org.apache.spark.sql.execution.datasources.v2.{
+  AppendDataExecV1,
+  AtomicCreateTableAsSelectExec,
+  AtomicReplaceTableAsSelectExec,
+  OverwriteByExpressionExecV1
+}
+import org.apache.spark.sql.rapids.{ExternalSource, GpuAnd, GpuEqualTo, GpuFileSourceScanExec, GpuNot}
 import org.apache.spark.sql.rapids.shims.TrampolineConnectShims
-import org.apache.spark.sql.sources.InsertableRelation
+import org.apache.spark.sql.sources.{CreatableRelationProvider, InsertableRelation}
 import org.apache.spark.sql.types.StructType
 
 object DeltaSpark400DB173Provider extends DatabricksDeltaProviderBase {
+
+  override def getExecRules: Map[Class[_ <: SparkPlan], ExecRule[_ <: SparkPlan]] = {
+    super.getExecRules ++ Seq(
+      GpuOverrides.exec[AppendDataExecV1](
+        "Append data into a datasource V2 table using the V1 write interface",
+        ExecChecks((TypeSig.commonCudfTypes + TypeSig.DECIMAL_128 +
+          TypeSig.STRUCT + TypeSig.MAP + TypeSig.ARRAY + TypeSig.BINARY +
+          GpuTypeShims.additionalCommonOperatorSupportedTypes).nested(),
+          TypeSig.all),
+        (p, conf, parent, r) => new DB173AppendDataExecV1Meta(p, conf, parent, r)),
+      GpuOverrides.exec[OverwriteByExpressionExecV1](
+        "Overwrite into a datasource V2 table using the V1 write interface",
+        ExecChecks((TypeSig.commonCudfTypes + TypeSig.DECIMAL_128 +
+          TypeSig.STRUCT + TypeSig.MAP + TypeSig.ARRAY + TypeSig.BINARY +
+          GpuTypeShims.additionalCommonOperatorSupportedTypes).nested(),
+          TypeSig.all),
+        (p, conf, parent, r) => new DB173OverwriteByExpressionExecV1Meta(p, conf, parent, r)),
+      GpuOverrides.exec[ExecutedCommandExec](
+        "Eagerly executed commands",
+        ExecChecks(TypeSig.all, TypeSig.all),
+        (p, conf, parent, r) => new DB173ExecutedCommandExecMeta(p, conf, parent, r))
+    ).map(r => (r.getClassFor.asSubclass(classOf[SparkPlan]), r)).toMap
+  }
+
+  override def getCreatableRelationRules: Map[Class[_ <: CreatableRelationProvider],
+      CreatableRelationProviderRule[_ <: CreatableRelationProvider]] = {
+    Seq(
+      ExternalSource.toCreatableRelationProviderRule[DeltaDataSource](
+        "Write to Delta Lake table",
+        (a, conf, p, r) => {
+          require(p.isDefined, "Must provide parent meta")
+          new DB173DeltaCreatableRelationProviderMeta(a, conf, p, r)
+        })
+    ).map(r => (r.getClassFor.asSubclass(classOf[CreatableRelationProvider]), r)).toMap
+  }
 
   override def isSupportedFormat(format: Class[_ <: FileFormat]): Boolean =
     super.isSupportedFormat(format) ||
@@ -182,6 +229,49 @@ object DeltaSpark400DB173Provider extends DatabricksDeltaProviderBase {
   }
 
   override def tagForGpu(
+      cpuExec: AppendDataExecV1,
+      meta: AppendDataExecV1Meta): Unit = {
+    super.tagForGpu(cpuExec, meta)
+    cpuExec.table match {
+      case deltaTable: DeltaTableV2 =>
+        DB173LiquidClusteringFallback.tagForGpu(
+          meta, deltaLogForTable(cpuExec.session, deltaTable))
+      case _ =>
+    }
+  }
+
+  override def tagForGpu(
+      cpuExec: OverwriteByExpressionExecV1,
+      meta: OverwriteByExpressionExecV1Meta): Unit = {
+    super.tagForGpu(cpuExec, meta)
+    cpuExec.table match {
+      case deltaTable: DeltaTableV2 =>
+        DB173LiquidClusteringFallback.tagForGpu(
+          meta, deltaLogForTable(cpuExec.session, deltaTable))
+      case _ =>
+    }
+  }
+
+  private[delta] def deltaLogForTable(spark: SparkSession, deltaTable: DeltaTableV2): DeltaLog = {
+    val tablePath = if (deltaTable.catalogTable.isDefined) {
+      new Path(deltaTable.catalogTable.get.location)
+    } else {
+      DeltaDataSource.parsePathIdentifier(spark, deltaTable.path.toString,
+        deltaTable.options)._1
+    }
+    DeltaLog.forTable(spark, tablePath, deltaTable.options)
+  }
+
+  private[delta] def isLiquidClusteredTable(spark: SparkSession, table: Any): Boolean = {
+    table match {
+      case deltaTable: DeltaTableV2 =>
+        DB173LiquidClusteringFallback.isLiquidClustered(deltaLogForTable(spark, deltaTable))
+      case _ =>
+        false
+    }
+  }
+
+  override def tagForGpu(
       cpuExec: AtomicCreateTableAsSelectExec,
       meta: AtomicCreateTableAsSelectExecMeta): Unit = {
     tagDB173UnsupportedTableSpec(meta, cpuExec.tableSpec, cpuExec.session)
@@ -266,6 +356,110 @@ object DeltaSpark400DB173Provider extends DatabricksDeltaProviderBase {
 
   private def trueOrInvalidBoolean(value: String): Boolean =
     !value.trim.equalsIgnoreCase("false")
+}
+
+case class DB173RapidsDisabledExec(child: SparkPlan) extends ShimUnaryExecNode {
+  override def output = child.output
+
+  override lazy val metrics = child.metrics
+
+  override def nodeName: String = "DB173RapidsDisabled"
+
+  override def supportsColumnar: Boolean = false
+
+  override def executeCollect(): Array[InternalRow] = {
+    withRapidsDisabled {
+      child.executeCollect()
+    }
+  }
+
+  override def executeToIterator(): Iterator[InternalRow] = executeCollect().iterator
+
+  override def executeTake(limit: Int): Array[InternalRow] = {
+    withRapidsDisabled {
+      child.executeTake(limit)
+    }
+  }
+
+  override def executeTail(limit: Int): Array[InternalRow] = {
+    withRapidsDisabled {
+      child.executeTail(limit)
+    }
+  }
+
+  override protected def doExecute(): RDD[InternalRow] = {
+    sparkContext.parallelize(executeCollect().toSeq, 1)
+  }
+
+  private def withRapidsDisabled[T](body: => T): T = {
+    DB173LiquidClusteringFallback.withRapidsDisabled(SparkSession.active)(body)
+  }
+}
+
+class DB173AppendDataExecV1Meta(
+    wrapped: AppendDataExecV1,
+    conf: RapidsConf,
+    parent: Option[RapidsMeta[_, _, _]],
+    rule: DataFromReplacementRule)
+    extends AppendDataExecV1Meta(wrapped, conf, parent, rule) {
+  override def convertToCpu(): SparkPlan = {
+    if (DeltaSpark400DB173Provider.isLiquidClusteredTable(wrapped.session, wrapped.table)) {
+      DB173RapidsDisabledExec(wrapped)
+    } else {
+      super.convertToCpu().asInstanceOf[SparkPlan]
+    }
+  }
+}
+
+class DB173OverwriteByExpressionExecV1Meta(
+    wrapped: OverwriteByExpressionExecV1,
+    conf: RapidsConf,
+    parent: Option[RapidsMeta[_, _, _]],
+    rule: DataFromReplacementRule)
+    extends OverwriteByExpressionExecV1Meta(wrapped, conf, parent, rule) {
+  override def convertToCpu(): SparkPlan = {
+    if (DeltaSpark400DB173Provider.isLiquidClusteredTable(wrapped.session, wrapped.table)) {
+      DB173RapidsDisabledExec(wrapped)
+    } else {
+      super.convertToCpu().asInstanceOf[SparkPlan]
+    }
+  }
+}
+
+class DB173ExecutedCommandExecMeta(
+    wrapped: ExecutedCommandExec,
+    conf: RapidsConf,
+    parent: Option[RapidsMeta[_, _, _]],
+    rule: DataFromReplacementRule)
+    extends ExecutedCommandExecMeta(wrapped, conf, parent, rule) {
+  override def convertToCpu(): SparkPlan = {
+    if (DB173LiquidClusteringFallback.writesLiquidClusteredTable(wrapped.cmd)) {
+      DB173RapidsDisabledExec(wrapped)
+    } else {
+      super.convertToCpu().asInstanceOf[SparkPlan]
+    }
+  }
+}
+
+class DB173DeltaCreatableRelationProviderMeta(
+    source: DeltaDataSource,
+    conf: RapidsConf,
+    parent: Option[RapidsMeta[_, _, _]],
+    rule: DataFromReplacementRule)
+    extends DeltaCreatableRelationProviderMeta(source, conf, parent, rule) {
+  private val saveCmd = parent.get.wrapped match {
+    case s: SaveIntoDataSourceCommand => s
+    case s =>
+      throw new IllegalStateException(s"Expected SaveIntoDataSourceCommand, found ${s.getClass}")
+  }
+
+  override def tagSelfForGpu(): Unit = {
+    super.tagSelfForGpu()
+    saveCmd.options.get("path").foreach { path =>
+      val deltaLog = DeltaLog.forTable(SparkSession.active, new Path(path), saveCmd.options)
+      DB173LiquidClusteringFallback.tagForGpu(this, deltaLog)
+    }
+  }
 }
 
 private object DB173DVPredicatePushdown extends ShimPredicateHelper {

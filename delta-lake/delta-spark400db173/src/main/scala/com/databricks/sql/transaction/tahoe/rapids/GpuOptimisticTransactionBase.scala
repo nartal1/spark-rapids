@@ -54,8 +54,10 @@ abstract class GpuOptimisticTransactionBase(
       isCDCWritePhase: Boolean,
       context: Option[String]): Seq[FileAction] = {
     if (isLiquidClustering || isCDCWritePhase) {
-      super.writeFiles(inputData, writeOptions, isOptimize, isLiquidClustering,
-        additionalConstraints, isCDCWritePhase, context)
+      DB173RapidsCpuFallback.withRapidsDisabled(inputData.sparkSession) {
+        super.writeFiles(inputData, writeOptions, isOptimize, isLiquidClustering,
+          additionalConstraints, isCDCWritePhase, context)
+      }
     } else {
       writeFiles(inputData, writeOptions.deltaOptions, additionalConstraints)
     }

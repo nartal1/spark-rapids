@@ -35,6 +35,7 @@ import org.apache.spark.sql.{Dataset, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, RuntimeReplaceable}
 import org.apache.spark.sql.execution.{QueryExecution, SparkPlan}
 import org.apache.spark.sql.execution.datasources.FileFormatWriter
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.rapids.ColumnarWriteJobStatsTracker
 import org.apache.spark.sql.rapids.shims.TrampolineConnectShims
 import org.apache.spark.util.Clock
@@ -114,8 +115,10 @@ class GpuOptimisticTransaction(
       isCDCWritePhase: Boolean,
       context: Option[String]): Seq[FileAction] = {
     if (isLiquidClustering || isCDCWritePhase) {
-      super.writeFiles(inputData, writeOptions, isOptimize, isLiquidClustering,
-        additionalConstraints, isCDCWritePhase, context)
+      DB173RapidsCpuFallback.withRapidsDisabled(inputData.sparkSession) {
+        super.writeFiles(inputData, writeOptions, isOptimize, isLiquidClustering,
+          additionalConstraints, isCDCWritePhase, context)
+      }
     } else {
       val (fileActions, _) =
         gpuWriteFiles(
@@ -140,9 +143,11 @@ class GpuOptimisticTransaction(
       context: Option[String],
       trailing: Boolean): (Seq[FileAction], QueryExecution) = {
     if (isLiquidClustering || isCDCWritePhase) {
-      super.writeFilesAndGetQueryExecution(
-        inputData, writeOptions, isOptimize, isLiquidClustering,
-        additionalConstraints, isCDCWritePhase, context, trailing)
+      DB173RapidsCpuFallback.withRapidsDisabled(inputData.sparkSession) {
+        super.writeFilesAndGetQueryExecution(
+          inputData, writeOptions, isOptimize, isLiquidClustering,
+          additionalConstraints, isCDCWritePhase, context, trailing)
+      }
     } else {
       gpuWriteFiles(
         inputData,
@@ -164,9 +169,11 @@ class GpuOptimisticTransaction(
       context: Option[String],
       trailing: Boolean): (Seq[FileAction], SparkPlan) = {
     if (isLiquidClustering) {
-      super.writeFilesAndGetExecutedPlan(
-        inputData, writeOptions, isOptimize, isLiquidClustering,
-        additionalConstraints, context, trailing)
+      DB173RapidsCpuFallback.withRapidsDisabled(inputData.sparkSession) {
+        super.writeFilesAndGetExecutedPlan(
+          inputData, writeOptions, isOptimize, isLiquidClustering,
+          additionalConstraints, context, trailing)
+      }
     } else {
       val deltaOpts = writeOptions match {
         case Left(opt) => opt
@@ -190,20 +197,35 @@ class GpuOptimisticTransaction(
   }
 }
 
+private[rapids] object DB173RapidsCpuFallback {
+  def withRapidsDisabled[T](spark: SparkSession)(body: => T): T = {
+    val rapidsEnabled = RapidsConf.SQL_ENABLED.key
+    val originalSessionConf = spark.conf.getOption(rapidsEnabled)
+    val sqlConf = SQLConf.get
+    val originalSqlConf = Option(sqlConf.getConfString(rapidsEnabled, null))
+    spark.conf.set(rapidsEnabled, "false")
+    sqlConf.setConfString(rapidsEnabled, "false")
+    try {
+      body
+    } finally {
+      originalSqlConf match {
+        case Some(value) => sqlConf.setConfString(rapidsEnabled, value)
+        case None => sqlConf.unsetConf(rapidsEnabled)
+      }
+      originalSessionConf match {
+        case Some(value) => spark.conf.set(rapidsEnabled, value)
+        case None => spark.conf.unset(rapidsEnabled)
+      }
+    }
+  }
+}
+
 private object GpuAutoCompactCpuFallback extends PostCommitHook {
   override val name: String = AutoCompact.name
 
   override def run(spark: SparkSession, txn: CommittedTransaction): Unit = {
-    val rapidsEnabled = RapidsConf.SQL_ENABLED.key
-    val original = spark.conf.getOption(rapidsEnabled)
-    spark.conf.set(rapidsEnabled, "false")
-    try {
+    DB173RapidsCpuFallback.withRapidsDisabled(spark) {
       AutoCompact.run(spark, txn)
-    } finally {
-      original match {
-        case Some(value) => spark.conf.set(rapidsEnabled, value)
-        case None => spark.conf.unset(rapidsEnabled)
-      }
     }
   }
 }

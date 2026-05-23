@@ -23,6 +23,7 @@ import com.nvidia.spark.rapids.delta.{UpdateCommandEdgeMeta, UpdateCommandMeta}
 object UpdateCommandMetaShim {
   def tagForGpu(meta: UpdateCommandMeta): Unit = {
     val deltaLog = meta.updateCmd.tahoeFileIndex.deltaLog
+    DB173LiquidClusteringFallback.tagForGpu(meta, deltaLog)
     val dvFeatureEnabled =
       DeletionVectorUtils.deletionVectorsWritable(deltaLog.unsafeVolatileSnapshot)
 
@@ -34,6 +35,7 @@ object UpdateCommandMetaShim {
 
   def tagForGpu(meta: UpdateCommandEdgeMeta): Unit = {
     val deltaLog = meta.updateCmd.tahoeFileIndex.deltaLog
+    DB173LiquidClusteringFallback.tagForGpu(meta, deltaLog)
     val dvFeatureEnabled =
       DeletionVectorUtils.deletionVectorsWritable(deltaLog.unsafeVolatileSnapshot)
 

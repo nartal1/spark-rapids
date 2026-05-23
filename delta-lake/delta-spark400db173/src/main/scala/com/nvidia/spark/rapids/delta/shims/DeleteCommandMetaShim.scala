@@ -22,6 +22,7 @@ import com.nvidia.spark.rapids.delta.{DeleteCommandEdgeMeta, DeleteCommandMeta}
 
 object DeleteCommandMetaShim {
   def tagForGpu(meta: DeleteCommandMeta): Unit = {
+    DB173LiquidClusteringFallback.tagForGpu(meta, meta.deleteCmd.deltaLog)
     val dvFeatureEnabled = DeletionVectorUtils.deletionVectorsWritable(
       meta.deleteCmd.deltaLog.unsafeVolatileSnapshot)
     if (dvFeatureEnabled && meta.deleteCmd.conf.getConf(
@@ -31,6 +32,7 @@ object DeleteCommandMetaShim {
   }
 
   def tagForGpu(meta: DeleteCommandEdgeMeta): Unit = {
+    DB173LiquidClusteringFallback.tagForGpu(meta, meta.deleteCmd.deltaLog)
     val dvFeatureEnabled = DeletionVectorUtils.deletionVectorsWritable(
       meta.deleteCmd.deltaLog.unsafeVolatileSnapshot)
     if (dvFeatureEnabled && meta.deleteCmd.conf.getConf(
