@@ -107,7 +107,6 @@ def _normalize_row_tracking_column_names(properties):
             changed = True
     return changed
 
-
 def _fixup_operation_parameters(opp):
     """Update the specified operationParameters node to facilitate log comparisons"""
     for key in ("predicate", "matchedPredicates", "notMatchedPredicates"):
@@ -147,12 +146,25 @@ def assert_delta_log_json_equivalent(filename, c_json, g_json):
         for key in key_list:
             c_val.pop(key, None)
             g_val.pop(key, None)
+    def fixup_domain_metadata(d):
+        """Normalize generated values in domainMetadata configuration."""
+        if d.get("domain") == "com.databricks.liquid" and d.get("configuration"):
+            configuration = json.loads(d["configuration"])
+            for config_key in ("metadataId", "revisionId"):
+                configuration.pop(config_key, None)
+            d["configuration"] = json.dumps(configuration, sort_keys=True)
+
+    def fixup_metadata_configuration(d):
+        for config_key in ROW_TRACKING_COLUMN_NAME_KEYS:
+            d.get("configuration", {}).pop(config_key, None)
+
     for key, c_val in c_json.items():
         g_val = g_json[key]
         # Strip out the values that are expected to be different
         c_tags = c_val.get("tags", {})
         g_tags = g_val.get("tags", {})
-        del_keys(["INSERTION_TIME", "MAX_INSERTION_TIME", "MIN_INSERTION_TIME", "ZCUBE_ID"], c_tags, g_tags)
+        del_keys(["INSERTION_TIME", "MAX_INSERTION_TIME", "MIN_INSERTION_TIME", "ZCUBE_ID",
+                  "compactedInto", "optimizeCommandId"], c_tags, g_tags)
         if key == "metaData":
             assert c_val.keys() == g_val.keys(), "Delta log {} 'metaData' keys mismatch:\nCPU: {}\nGPU: {}".format(filename, c_val, g_val)
             del_keys(("createdTime", "id"), c_val, g_val)
@@ -174,6 +186,10 @@ def assert_delta_log_json_equivalent(filename, c_json, g_json):
             for v in c_val, g_val:
                 _fixup_operation_metrics(v.get("operationMetrics", {}))
                 _fixup_operation_parameters(v.get("operationParameters", {}))
+        elif key == "domainMetadata":
+            assert c_val.keys() == g_val.keys(), "Delta log {} 'domainMetadata' keys mismatch:\nCPU: {}\nGPU: {}".format(filename, c_val, g_val)
+            fixup_domain_metadata(c_val)
+            fixup_domain_metadata(g_val)
         elif key == "remove":
             assert c_val.keys() == g_val.keys(), "Delta log {} 'remove' keys mismatch:\nCPU: {}\nGPU: {}".format(filename, c_val, g_val)
             del_keys(("deletionTimestamp", "size"), c_val, g_val)
