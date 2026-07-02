@@ -382,8 +382,12 @@ def test_hive_text_partition_listing_shim_paths(spark_tmp_path, spark_tmp_table_
         assert_gpu_hive_scan(filtered, "Filtered partitioned Hive text read")
         return unfiltered.unionByName(filtered)
 
-    conf = copy_and_update(hive_text_enabled_conf,
-                           {"spark.sql.hive.metastorePartitionPruning": "true"})
+    # Keep the partition filter in GpuHiveTableScanExec so rawPartitions calls listPartitionsByFilter.
+    conf = copy_and_update(hive_text_enabled_conf, {
+        "spark.sql.hive.metastorePartitionPruning": "true",
+        "spark.sql.optimizer.excludedRules":
+            "org.apache.spark.sql.hive.execution.PruneHiveTablePartitions"
+    })
     assert_gpu_and_cpu_are_equal_collect(read_partitioned_table, conf=conf)
 
 @pytest.mark.skipif(is_spark_cdh(),
