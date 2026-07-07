@@ -545,6 +545,46 @@ delta_lake_liquid_clustering_test.py (MERGE/DELETE/UPDATE selectors):
 3 passed, 10 deselected, 27 warnings in 110.02s
 ```
 
+Benchmark validation:
+
+- A matched DBR 17.3 benchmark used one immutable non-DV `CLUSTER BY (a)`
+  snapshot with 33,554,432 rows, eight fragmented input files, and
+  9,011,604,429 input bytes. Every CPU and GPU run shallow-cloned that same
+  snapshot. The measured command was only `OPTIMIZE`; clone setup and
+  correctness checks were excluded.
+- Configuration was `RUNS=3`, `ITERATIONS=1`, and `WARMUP_ITERATIONS=0`.
+  All three CPU runs and all three GPU runs passed exact data comparisons and
+  productive add/remove-file assertions.
+- Captured event logs contain one productive nested GPU writer execution in
+  every GPU run. Each adaptive plan contains `Execute
+  GpuWriteIntoDeltaCommand` and `GpuWriteFiles`. The DBR hidden-field and
+  nullable row-tracking source `Scan parquet` remains CPU, as expected.
+- The final CPU and GPU commits both contain eight removes, eight adds, one
+  commitInfo action, and two domainMetadata actions. Stable semantics match
+  after normalizing generated liquid IDs, revision IDs, timings, cluster/job
+  identity, and physical file names: operation parameters and counts, liquid
+  and row-tracking domains, aggregate AddFile row counts/global stats/null
+  counts, stable tags, and row-ID coverage are equal.
+- Individual AddFile boundaries are not byte-for-byte equal: the GPU writer
+  produces different per-file row ranges, file sizes, baseRowId starts, and
+  file-level statistics. Exact table data and aggregate/stable Delta semantics
+  are equal. This physical layout difference is distinct from the rejected
+  implementation that produced metadata-only CPU actions versus GPU ZCUBE
+  actions.
+- Timed OPTIMIZE results were:
+
+| Run | CPU (seconds) | GPU (seconds) | CPU/GPU |
+| ---: | ---: | ---: | ---: |
+| 1 | 109.308 | 105.820 | 1.033x |
+| 2 | 46.268 | 56.629 | 0.817x |
+| 3 | 38.983 | 53.563 | 0.728x |
+| Median | 46.268 | 56.629 | 0.817x |
+
+The GPU median is 22.39% slower for this boundary-heavy workload. The result is
+consistent with keeping DBR planning, Kd-tree/domain metadata, the hidden-field
+source scan, validation, and commit on CPU while accelerating only the rewrite
+data plane after the CPU scan.
+
 Conclusion:
 
 - DBR 17.3 liquid clustered OPTIMIZE is enabled only at the typed native write
@@ -553,8 +593,9 @@ Conclusion:
   splitting, validation, metrics, and commit semantics, which is why CPU/GPU
   Delta-log parity can be maintained.
 - Correctness is established for productive multi-file, repeated, and exact
-  metadata-only cases. The consolidated correctness run is complete, so the
-  matched CPU/GPU benchmark phase may proceed.
+  metadata-only cases. The matched scale benchmark also proves productive GPU
+  execution and stable Delta semantic parity, but it does not show a speedup
+  for the current CPU-scan/GPU-write boundary.
 
 ## Remaining Work
 
@@ -562,8 +603,8 @@ Conclusion:
   row-index-set path.
 - Persistent deletion-vector DELETE, UPDATE, MERGE, and OPTIMIZE writes remain
   unsupported on GPU.
-- Run matched CPU/GPU liquid OPTIMIZE benchmarks and verify event logs and
-  physical plans before making performance claims.
+- Investigate GPU performance with the DBR hidden metadata/row-tracking scan
+  boundary; the completed scale benchmark has a 0.817x median CPU/GPU ratio.
 - Expand liquid OPTIMIZE support only after independent semantic proof for
   `ZORDER`, `REORG`, `FULL`, deletion-vector cleanup/persistent DV writes,
   predicate variants, and broader catalog/table features.
