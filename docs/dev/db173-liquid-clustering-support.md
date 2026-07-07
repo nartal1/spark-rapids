@@ -306,7 +306,44 @@ removing liquid clustering guards.
 
 ## Stage 4: OPTIMIZE
 
-Status: blocked for DBR 17.3 GPU support.
+Status: supported on DBR 17.3 for ordinary OPTIMIZE on existing liquid
+clustered tables when deletion vectors are disabled.
+
+Implementation commits:
+
+- `00b200afa Add DBR liquid OPTIMIZE GPU write boundary`
+- `dc5b80d16 Enable native DBR liquid OPTIMIZE GPU writes`
+- `4113bfe91 Fix DBR liquid OPTIMIZE GPU write statistics`
+- `f5af1d042 Allow DBR liquid OPTIMIZE metadata aggregation on CPU`
+- `ea8f04f0e Use explicit plan capture for DBR liquid OPTIMIZE`
+
+Selected design:
+
+- DBR's native `OptimizeRunner`, `OptimizeExecutor`, liquid batch producer,
+  Kd-tree planning, `com.databricks.liquid` domain metadata, transactions,
+  metrics, validation, and commit protocol remain authoritative CPU code.
+- The GPU replacement is limited to the nested DBR
+  `WriteIntoDeltaCommand`, which is the data-plane boundary that reads and
+  rewrites the selected files. It reuses the native command's output
+  specification, Hadoop configuration, bucket and partition information,
+  write options, and `DelayedCommitProtocolEdge` instance.
+- Reusing the native committer preserves DBR's liquid AddFile handling,
+  including the partition ID tags required by
+  `NumberOfRecordsValidator`. Add/remove actions and Kd-tree domain metadata
+  continue to be produced and committed by the native optimizer.
+- A scoped Spark local property enables the otherwise generic DBR V1
+  `WriteIntoDeltaCommand` GPU rule only while native liquid OPTIMIZE is
+  running. DBR's `SparkThreadLocalCapturingHelper` captures the property when
+  a batch is submitted to its shared worker pool and restores the worker's
+  prior properties afterward.
+- The command converts DBR's basic and Delta statistics trackers to their GPU
+  equivalents, copies per-file recorded statistics back to the native tracker,
+  and installs the command-level `GpuWriteJobStatsTracker`. Unsupported tracker
+  shapes fail closed to CPU.
+- Metadata-only/no-op work remains in the native CPU framework. A productive
+  rewrite is verified by captured `GpuDataWritingCommandExec` and
+  `GpuWriteFilesExec` plans rather than by treating the outer
+  `GpuExecutedCommandExec` alone as proof of a GPU file rewrite.
 
 OSS Delta 4.0 status:
 
@@ -315,10 +352,10 @@ OSS Delta 4.0 status:
   `OptimizeTableStrategy`, liquid clustering column extraction, clustering-aware
   AddFile tagging, and CPU/GPU Delta log parity tests.
 
-DBR 17.3 findings:
+Original DBR 17.3 feasibility findings:
 
-- Liquid clustered OPTIMIZE remains explicitly rejected in the DBR 17.3 GPU
-  command and meta shim:
+- Liquid clustered OPTIMIZE was explicitly rejected in the DBR 17.3 GPU
+  command and meta shim before this stage:
   - `delta-lake/delta-spark400db173/src/main/scala/com/databricks/sql/transaction/tahoe/rapids/GpuOptimizeTableCommand.scala`
   - `delta-lake/delta-spark400db173/src/main/scala/com/nvidia/spark/rapids/delta/shims/OptimizeTableCommandMetaShim.scala`
 - DBR 17.3 liquid OPTIMIZE is not equivalent to the OSS/older DBR ZCube-tag
@@ -347,7 +384,7 @@ DBR 17.3 findings:
   `StaticInvoke`, `Invoke`), and disabled JSON serialization for metadata
   (`StructsToJson`).
 
-### 2026-07-07 safe-boundary probe
+### 2026-07-07 rejected transaction-level safe-boundary probe
 
 A second probe tested the narrower boundary of keeping DBR's native liquid
 planning, Kd-tree/domain-metadata generation, batching, metrics, and commit on
@@ -389,11 +426,12 @@ Execute WriteIntoDeltaCommand ...
   though the test explicitly disabled deletion vectors.
 
 This proves there is no stable transaction-level seam in the exposed DBR 17.3
-framework where only file I/O can be accelerated. Supporting this safely would
-require a DBR-compatible replacement for the private batch/write transaction
-construction, or first-class GPU support for DBR's
-`WriteIntoDeltaCommand`/`DataWritingCommandExec` path. Merely overriding
-`split`, disabling stats backfill, or removing the liquid guards is not enough.
+framework where only file I/O can be accelerated. Merely overriding `split`,
+disabling stats backfill, or removing the liquid guards is not enough. The
+selected implementation therefore follows the other safe option identified by
+the probe: narrowly scoped, first-class GPU support for the nested DBR
+`WriteIntoDeltaCommand` while leaving the private transaction and optimizer
+framework unchanged.
 
 Validation and probe results:
 
@@ -436,37 +474,87 @@ TESTS=delta_lake_optimize_table_test.py bash integration_tests/run_pyspark_from_
 1 failed, 8 deselected, 27 warnings in 134.96s
 ```
 
-The temporary native-runner and transaction-split changes were backed out after
-the probe. The existing liquid OPTIMIZE fallback guards remain unchanged.
+The temporary transaction-split changes were backed out after the probe. The
+selected implementation keeps the native runner but replaces only its nested
+file-writing command under the scoped liquid-OPTIMIZE marker.
 
-What would be required:
+Validated support and fallback boundaries:
 
-- Integrate the GPU path with DBR 17.3's new liquid optimize framework rather
-  than reusing the old OSS/DBR optimize executor directly.
-- Preserve and update DBR `com.databricks.liquid` Kd-tree domain metadata with
-  the same semantics as the DBR CPU command.
-- Add GPU support or safe CPU/GPU boundaries for the DBR liquid optimize
-  internals listed above, especially row-tracking generated-field scans,
-  Kd-tree metadata object plans, table-cache stages, and the DBR
-  `WriteIntoDeltaCommand` / `WriteFilesExec` rewrite path.
-- Ensure every DBR-created or split batch transaction retains a GPU-capable
-  write implementation. The public command transaction and `split` override do
-  not control the transaction used by the actual private rewrite batch.
-- Add multi-file liquid OPTIMIZE tests once the metadata and rewrite path are
-  supported. The current clustered OPTIMIZE test setup can produce only one
-  file on DBR 17.3, which exercises metadata-only OPTIMIZE instead of file
-  clustering unless the setup is adjusted.
+- Supported: existing DBR 17.3 liquid clustered tables, deletion vectors
+  disabled, and ordinary `OPTIMIZE` without predicates.
+- Supported: productive multi-file rewrites through the GPU
+  `WriteIntoDeltaCommand` data plane while DBR retains native planning and
+  commit semantics.
+- Supported: repeated `OPTIMIZE` with CPU/GPU data and Delta-log semantic
+  parity after each invocation.
+- Supported: metadata-only liquid `OPTIMIZE`, including exact action and
+  `com.databricks.liquid` domain-metadata parity after normalization of only
+  generated metadata and revision IDs.
+- Covered: liquid tables with row tracking enabled. DBR-owned row-tracking
+  metadata work may remain on CPU; the selected file rewrite is eligible for
+  GPU execution when the tracker and schema guards accept it.
+- CPU fallback: liquid tables with deletion vectors enabled or with existing
+  deletion vectors, persistent DV writes or cleanup, `ZORDER`, `REORG`, `FULL`,
+  liquid partition predicates, unsupported write-statistics shapes, and the
+  broader catalog/table features listed below.
+- Ordinary non-liquid DBR 17.3 OPTIMIZE continues to use the existing GPU
+  executor; the native-runner/write-command boundary is limited to liquid
+  tables.
+
+Correctness validation:
+
+- Focused forced-rewrite and repeated-OPTIMIZE tests passed together:
+
+```text
+2 passed
+```
+
+- The exact metadata-only liquid OPTIMIZE parity test passed:
+
+```text
+1 passed
+```
+
+- The focused tests compare CPU/GPU table data and the latest Delta-log action
+  set after the first productive OPTIMIZE and again after the repeat. The log
+  comparison includes add/remove actions and `com.databricks.liquid`
+  `domainMetadata`; only nondeterministic file values, generated liquid IDs,
+  and established nondeterministic tags are normalized.
+- Plan capture requires both `GpuDataWritingCommandExec` and
+  `GpuWriteFilesExec` for productive liquid rewrites. The metadata-only test
+  does not incorrectly require a GPU file writer.
+- DBR Delta module compilation, integration-test packaging, and a full Scala
+  2.13 CUDA 12 distribution build completed with `BUILD SUCCESS`. The built JAR
+  is:
+
+```text
+/home/ubuntu/spark-rapids-liquid-optimize-solution/scala2.13/dist/target/
+rapids-4-spark_2.13-26.08.0-SNAPSHOT-cuda12.jar
+```
+
+- The final consolidated DBR 17.3 OPTIMIZE integration-test file passed:
+
+```text
+delta_lake_optimize_table_test.py: 11 passed, 28 warnings in 303.49s
+```
+
+- Regression validation of the supported non-DV liquid DML scenarios passed:
+
+```text
+delta_lake_liquid_clustering_test.py (MERGE/DELETE/UPDATE selectors):
+3 passed, 10 deselected, 27 warnings in 110.02s
+```
 
 Conclusion:
 
-- Do not enable DBR 17.3 liquid clustered OPTIMIZE tests yet.
-- The valid reason is DBR 17.3's liquid OPTIMIZE uses a private/newer Kd-tree
-  domain-metadata optimizer and CPU-only rewrite internals that the current GPU
-  optimize executor cannot reproduce safely.
-- The temporary old-executor OPTIMIZE attempt was backed out before commit.
-- The native-runner safe-boundary attempt was also backed out. Since a forced
-  rewrite did not reach a GPU write command, correctness was not established
-  and CPU-vs-GPU benchmarks were intentionally not run.
+- DBR 17.3 liquid clustered OPTIMIZE is enabled only at the typed native write
+  boundary; it does not reuse the incompatible older ZCube executor.
+- DBR remains responsible for Kd-tree planning, domain metadata, transaction
+  splitting, validation, metrics, and commit semantics, which is why CPU/GPU
+  Delta-log parity can be maintained.
+- Correctness is established for productive multi-file, repeated, and exact
+  metadata-only cases. The consolidated correctness run is complete, so the
+  matched CPU/GPU benchmark phase may proceed.
 
 ## Remaining Work
 
@@ -474,15 +562,19 @@ Conclusion:
   row-index-set path.
 - Persistent deletion-vector DELETE, UPDATE, MERGE, and OPTIMIZE writes remain
   unsupported on GPU.
-- Liquid clustered OPTIMIZE on DBR 17.3 remains blocked on DBR-specific
-  Kd-tree domain metadata and the new optimize framework.
+- Run matched CPU/GPU liquid OPTIMIZE benchmarks and verify event logs and
+  physical plans before making performance claims.
+- Expand liquid OPTIMIZE support only after independent semantic proof for
+  `ZORDER`, `REORG`, `FULL`, deletion-vector cleanup/persistent DV writes,
+  predicate variants, and broader catalog/table features.
 - The DBR 17.3 row-tracking generated-field scan is still CPU for supported
   non-DV DELETE, UPDATE, and MERGE paths.
 
 ## DBR 17.3 Exclusive Items To Track
 
 - Runtime-specific liquid `domainMetadata` and clustering operation parameters.
-  The current liquid test helper skips Delta log equivalence for DBR 17.3.
+  The OPTIMIZE parity helper now compares DBR 17.3 Delta-log actions and liquid
+  domain metadata while normalizing only generated metadata/revision IDs.
 - Late-stage/eager clustered writes:
   - `AQELateStageClusteredWrite`
   - `DeltaLateStageClusteredWriteRepartition`
@@ -507,5 +599,5 @@ Conclusion:
 | UPDATE on liquid table | Supported without persistent DV writes | Supported without persistent DV writes | Implemented in `249db991e`; DBR row-tracking metadata scan remains CPU. |
 | MERGE on liquid table | Supported without persistent DV writes | Supported without persistent DV writes | Implemented in `23be6440f`; `notMatchedBySourceClauses` remain unsupported. |
 | DELETE/UPDATE/MERGE on DV liquid table with persistent DV writes | Not supported on GPU | Not supported on GPU | Delta runtimes can execute these paths on CPU, but spark-rapids rejects persistent DV writes. |
-| OPTIMIZE liquid table without DVs | Supported | Blocked | DBR 17.3 uses Kd-tree `com.databricks.liquid` domain metadata and new CPU-only optimize internals. |
-| OPTIMIZE liquid table with DVs | Blocked by existing DV support | Blocked | Existing DV optimize guard plus DBR liquid optimize blocker. |
+| OPTIMIZE liquid table without DVs | Supported | Supported for ordinary OPTIMIZE | DBR native `OptimizeRunner` owns Kd-tree/domain metadata and commit semantics; the nested `WriteIntoDeltaCommand` file rewrite runs on GPU. |
+| OPTIMIZE liquid table with DVs | Blocked by existing DV support | Blocked by existing DV support | Persistent DV writes and DV cleanup remain CPU fallback boundaries. |
