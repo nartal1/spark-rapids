@@ -1,6 +1,6 @@
 # DBR 17.3 Liquid Clustering Support
 
-Last updated: 2026-06-25
+Last updated: 2026-07-07
 
 This tracker covers the DBR 17.3 liquid clustering work for
 NVIDIA/spark-rapids issue 14599, under the broader DBR 17.3 Delta Lake support
@@ -347,6 +347,54 @@ DBR 17.3 findings:
   `StaticInvoke`, `Invoke`), and disabled JSON serialization for metadata
   (`StructsToJson`).
 
+### 2026-07-07 safe-boundary probe
+
+A second probe tested the narrower boundary of keeping DBR's native liquid
+planning, Kd-tree/domain-metadata generation, batching, metrics, and commit on
+CPU while supplying a `GpuOptimisticTransaction` only for the virtual
+`writeFiles` call. This avoided the semantic error of the old executor and
+preserved the native `OptimizeRunner` path.
+
+DBR's private `OptimizeBatch.execute` splits the command transaction before a
+rewrite batch. Its `OptimisticTransaction.split` implementation constructs a
+plain `OptimisticTransaction`, so the probe also implemented an exact state-copy
+override that retained the GPU subtype. That was still insufficient for a real
+multi-file liquid rewrite:
+
+- A table created with `CLUSTER BY (a)`, deletion vectors disabled, and eight
+  multi-file appends forced the rewrite path.
+- The actual batch reached DBR's base `OptimisticTransaction.writeFiles`, not
+  `GpuOptimisticTransaction.writeFiles`.
+- The captured plan had a GPU scan/project below a CPU
+  `DataWritingCommandExec` / `WriteIntoDeltaCommand` / `WriteFiles` boundary.
+  Strict GPU validation stopped the command before commit with:
+
+```text
+java.lang.IllegalArgumentException: Part of the plan is not columnar
+class org.apache.spark.sql.execution.command.DataWritingCommandExec
+Execute WriteIntoDeltaCommand ...
++- WriteFiles
+   +- DeltaInvariantChecker ...
+      +- GpuColumnarToRow
+         +- GpuProject ...
+```
+
+- DBR exposes
+  `spark.databricks.delta.liquid.lazyClustering.backfillStats`; bytecode shows
+  its default is `false`. Explicitly pinning it to `false` produced the same
+  plain-transaction write boundary, so the loss of the GPU transaction is not
+  avoided by disabling lazy stats backfill.
+- The rewrite plan also carried DBR row-tracking fields (`row_id`,
+  `base_row_id`, `row_commit_version`, and `default_row_commit_version`), even
+  though the test explicitly disabled deletion vectors.
+
+This proves there is no stable transaction-level seam in the exposed DBR 17.3
+framework where only file I/O can be accelerated. Supporting this safely would
+require a DBR-compatible replacement for the private batch/write transaction
+construction, or first-class GPU support for DBR's
+`WriteIntoDeltaCommand`/`DataWritingCommandExec` path. Merely overriding
+`split`, disabling stats backfill, or removing the liquid guards is not enough.
+
 Validation and probe results:
 
 - The temporary old-executor implementation passed the DBR 17.3 build:
@@ -380,6 +428,17 @@ TESTS=delta_lake_optimize_table_test.py bash integration_tests/run_pyspark_from_
   GPU rewrote the file through the old executor, producing `add`/`remove`
   actions and `ZCUBE_*` file tags instead.
 
+- The native-runner safe-boundary probe built successfully as a full Scala
+  2.13 CUDA 12 distribution, but its forced multi-file test failed before
+  commit at the CPU write-command boundary:
+
+```text
+1 failed, 8 deselected, 27 warnings in 134.96s
+```
+
+The temporary native-runner and transaction-split changes were backed out after
+the probe. The existing liquid OPTIMIZE fallback guards remain unchanged.
+
 What would be required:
 
 - Integrate the GPU path with DBR 17.3's new liquid optimize framework rather
@@ -390,6 +449,9 @@ What would be required:
   internals listed above, especially row-tracking generated-field scans,
   Kd-tree metadata object plans, table-cache stages, and the DBR
   `WriteIntoDeltaCommand` / `WriteFilesExec` rewrite path.
+- Ensure every DBR-created or split batch transaction retains a GPU-capable
+  write implementation. The public command transaction and `split` override do
+  not control the transaction used by the actual private rewrite batch.
 - Add multi-file liquid OPTIMIZE tests once the metadata and rewrite path are
   supported. The current clustered OPTIMIZE test setup can produce only one
   file on DBR 17.3, which exercises metadata-only OPTIMIZE instead of file
@@ -402,6 +464,9 @@ Conclusion:
   domain-metadata optimizer and CPU-only rewrite internals that the current GPU
   optimize executor cannot reproduce safely.
 - The temporary old-executor OPTIMIZE attempt was backed out before commit.
+- The native-runner safe-boundary attempt was also backed out. Since a forced
+  rewrite did not reach a GPU write command, correctness was not established
+  and CPU-vs-GPU benchmarks were intentionally not run.
 
 ## Remaining Work
 
