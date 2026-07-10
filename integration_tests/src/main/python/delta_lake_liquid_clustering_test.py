@@ -56,7 +56,7 @@ def assert_liquid_clustering_delta_logs_equivalent(data_path):
 @allow_non_gpu(*delta_meta_allow)
 @allow_non_gpu_conditional(is_databricks173_or_later(),
                            f"{delta_write_fallback_allow},AtomicCreateTableAsSelectExec,"
-                           "AppendDataExecV1")
+                           "AppendDataExecV1,HashAggregateExec")
 @allow_non_gpu_delta_write_if(
     is_databricks173_or_later(),
     reason="DBR 17.3 plans Delta liquid CTAS through V2 AtomicCreateTableAsSelectExec")
@@ -160,6 +160,7 @@ def test_delta_rtas_sql_liquid_clustering(spark_tmp_path, spark_tmp_table_factor
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(), "ExecutedCommandExec")
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -189,6 +190,7 @@ def test_delta_append_sql_liquid_clustering(spark_tmp_path, spark_tmp_table_fact
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(), "ExecutedCommandExec")
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -256,7 +258,7 @@ def test_delta_insert_overwrite_dynamic_sql_liquid_clustering(spark_tmp_path,
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
 @allow_non_gpu_conditional(is_databricks173_or_later(),
-                           f"{delta_write_fallback_allow},EmptyRelationExec")
+                           f"{delta_write_fallback_allow},EmptyRelationExec,HashAggregateExec")
 @allow_non_gpu_delta_write_if(
     is_databricks173_or_later(),
     reason="DBR 17.3 liquid clustering replaceWhere may use CPU Delta write commands")
@@ -319,6 +321,7 @@ def do_test_delta_dml_sql_liquid_clustering(spark_tmp_path,
         conf=conf)
 
 @allow_non_gpu(*delta_meta_allow, delta_write_fallback_allow)
+@allow_non_gpu_conditional(is_databricks173_or_later(), "HashAggregateExec")
 @allow_non_gpu_delta_write_if(
     is_databricks173_or_later(),
     reason="DBR 17.3 liquid clustering DML may use CPU Delta write commands")
@@ -336,6 +339,7 @@ def test_delta_delete_sql_liquid_clustering(spark_tmp_path, spark_tmp_table_fact
 
 @allow_non_gpu(*delta_meta_allow, delta_write_fallback_allow, "CreateTableExec",
                "AppendDataExecV1")
+@allow_non_gpu_conditional(is_databricks173_or_later(), "HashAggregateExec")
 @allow_non_gpu_delta_write_if(
     is_databricks173_or_later(),
     reason="DBR 17.3 liquid clustering DML may use CPU Delta write commands")
@@ -355,7 +359,9 @@ def test_delta_update_sql_liquid_clustering(spark_tmp_path,
 
 
 @allow_non_gpu(delta_write_fallback_allow, *delta_meta_allow)
-@allow_non_gpu_conditional(is_spark_400_or_later(), "HashAggregateExec")
+@allow_non_gpu_conditional(
+    is_spark_400_or_later(),
+    "HashAggregateExec" + (",CollectLimitExec" if is_databricks173_or_later() else ""))
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -453,6 +459,7 @@ def write_to_delta_table_df(spark, path, mode, opts= None):
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(), "ExecutedCommandExec")
 @delta_lake
 @ignore_order
 @pytest.mark.skipif(is_databricks_runtime() and not is_databricks133_or_later(),
@@ -477,6 +484,7 @@ def test_delta_append_df_liquid_clustering(spark_tmp_path, spark_tmp_table_facto
 
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@allow_non_gpu_conditional(is_databricks173_or_later(), "ExecutedCommandExec")
 @delta_lake
 @ignore_order
 @pytest.mark.parametrize("overwrite_mode", ["STATIC", "DYNAMIC"],
@@ -509,7 +517,7 @@ def test_delta_insert_overwrite_df_liquid_clustering(spark_tmp_path,
 
 @allow_non_gpu(*delta_meta_allow, "CreateTableExec")
 @allow_non_gpu_conditional(is_databricks173_or_later(),
-                           f"{delta_write_fallback_allow},EmptyRelationExec")
+                           f"{delta_write_fallback_allow},EmptyRelationExec,HashAggregateExec")
 @allow_non_gpu_delta_write_if(
     is_databricks173_or_later(),
     reason="DBR 17.3 liquid clustering replaceWhere may use CPU Delta write commands")
