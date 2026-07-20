@@ -18,7 +18,9 @@
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.rapids.shims
 
+import com.databricks.sql.transaction.tahoe.perf.DeltaOptimizedWritePartitioning
 import com.nvidia.spark.rapids.{GpuMetric, GpuPartitioning}
+import com.nvidia.spark.rapids.shims.GpuHashPartitioning
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
@@ -65,6 +67,20 @@ case class GpuShuffleExchangeExec(
   // constructor parameter (the CPU partitioning). Our GPU version stores this as
   // cpuOutputPartitioning.
   override def targetOutputPartitioning: Partitioning = cpuOutputPartitioning
+
+  // DBR uses numPartitions == 0 in DeltaOptimizedWritePartitioning as a sentinel. Its CPU
+  // ShuffleExchangeExec resolves the physical partition count from the number of input
+  // partitions immediately before constructing the shuffle dependency. Do the same for the GPU
+  // dependency while retaining the native DBR partitioning as the exchange output contract.
+  override protected def gpuOutputPartitioningForShuffle(
+      inputNumPartitions: Int): GpuPartitioning = {
+    (cpuOutputPartitioning, gpuOutputPartitioning) match {
+      case (delta: DeltaOptimizedWritePartitioning, hash: GpuHashPartitioning) =>
+        val physical = delta.createDynamicPhysicalPartitioning(inputNumPartitions)
+        hash.copy(numPartitions = physical.numPartitions)
+      case _ => gpuOutputPartitioning
+    }
+  }
 
   override def withNewNumPartitions(numPartitions: Int): ShuffleExchangeLike = {
     val newCpuPartitioning = cpuOutputPartitioning.withNewNumPartitions(numPartitions)
