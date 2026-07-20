@@ -68,10 +68,25 @@ object SparkShimImpl extends Spark400PlusDBShims {
             // Keep DBR's partitioning as the CPU output partitioning on the converted exchange
             // so its DELTA_OPTIMIZED_WRITE AQE/skew rules still see the native contract. The
             // shuffle dependency itself uses the equivalent physical hash partitioning on GPU.
-            override val childParts: Seq[PartMeta[_]] = Seq(GpuOverrides.wrapPart(
-              partitioning.getPhysicalPartitioning, this.conf, Some(this)))
+            override val childParts: Seq[PartMeta[_]] = {
+              if (partitioning.expressions.isEmpty) {
+                Seq.empty
+              } else {
+                Seq(GpuOverrides.wrapPart(
+                  partitioning.getPhysicalPartitioning, this.conf, Some(this)))
+              }
+            }
 
-            override def convertToGpu(): GpuPartitioning = childParts.head.convertToGpu()
+            override def convertToGpu(): GpuPartitioning = {
+              // DBR represents an unpartitioned Delta target as HashPartitioning(Nil, n).
+              // Its hash is constant, so only one partition receives rows. Avoid invoking the
+              // GPU Murmur3 implementation with zero inputs and preserve that behavior directly.
+              if (partitioning.expressions.isEmpty) {
+                GpuSinglePartitioning
+              } else {
+                childParts.head.convertToGpu()
+              }
+            }
           })
     ).map(r => (r.getClassFor.asSubclass(classOf[Partitioning]), r)).toMap
     super.getPartitionings ++ shimPartitionings

@@ -355,8 +355,9 @@ def test_delta_db173_native_managed_ctas_rtas(
 @delta_lake
 @ignore_order(local=True)
 @pytest.mark.skipif(not is_databricks173_or_later(), reason="DBR 17.3 native write path")
+@pytest.mark.parametrize('partitioned', [False, True])
 def test_delta_db173_native_managed_ctas_rtas_optimized_write_gpu_exchange(
-        spark_tmp_table_factory):
+        spark_tmp_table_factory, partitioned):
     conf = copy_and_update(writer_confs, delta_writes_enabled_conf, {
         "spark.databricks.delta.optimizeWrite.enabled": "true",
         "spark.sql.adaptive.enabled": "true",
@@ -378,8 +379,11 @@ def test_delta_db173_native_managed_ctas_rtas_optimized_write_gpu_exchange(
         if replace:
             source = source.selectExpr(
                 "carrier_code", "carrier_id", "carrier_type", "carrier_id + 1 AS version")
-        source.write.format("delta").mode("overwrite") \
-            .option("overwriteSchema", "true").saveAsTable(table)
+        writer = source.write.format("delta").mode("overwrite") \
+            .option("overwriteSchema", "true")
+        if partitioned:
+            writer = writer.partitionBy("carrier_type")
+        writer.saveAsTable(table)
 
     with_cpu_session(lambda spark: write_table(spark, cpu_table, False), conf=conf)
     assert_db173_gpu_data_writing_command(
