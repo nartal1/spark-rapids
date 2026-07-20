@@ -417,7 +417,7 @@ def assert_rapids_delta_write(do_test, conf):
     finally:
         jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback.endCapture()
 
-def assert_db173_gpu_data_writing_command(do_test, conf):
+def assert_db173_gpu_data_writing_command(do_test, conf, require_gpu_optimized_write=False):
     """Assert that DBR 17.3 executed the nested Delta data-file command on GPU."""
     jvm = spark_jvm()
     callback = jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback
@@ -427,6 +427,8 @@ def assert_db173_gpu_data_writing_command(do_test, conf):
         captured_plans = callback.getResultsWithTimeout(10000)
         assert len(captured_plans) > 0, "No execution plans captured for Delta write"
         required_classes = ["GpuDataWritingCommandExec", "GpuWriteFilesExec"]
+        if require_gpu_optimized_write:
+            required_classes.append("GpuShuffleExchangeExec")
         matching_plans = [
             plan for plan in captured_plans
             if all(callback.contains(plan, cls) for cls in required_classes)
@@ -437,6 +439,10 @@ def assert_db173_gpu_data_writing_command(do_test, conf):
             for cpu_class in ["DataWritingCommandExec", "WriteFilesExec"]:
                 assert not callback.didFallBack(plan, cpu_class), \
                     f"Captured GPU Delta write also contains CPU {cpu_class}"
+        if require_gpu_optimized_write:
+            for plan in matching_plans:
+                assert not callback.didFallBack(plan, "ShuffleExchangeExec"), \
+                    "DBR optimized-write shuffle fell back to CPU"
         return result
     finally:
         callback.endCapture()
