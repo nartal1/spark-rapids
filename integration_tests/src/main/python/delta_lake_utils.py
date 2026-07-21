@@ -417,7 +417,7 @@ def assert_rapids_delta_write(do_test, conf):
     finally:
         jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback.endCapture()
 
-def assert_db173_gpu_data_writing_command(do_test, conf):
+def assert_db173_gpu_data_writing_command(do_test, conf, optimized_write):
     """Assert that DBR 17.3 executed the nested Delta data-file command on GPU."""
     jvm = spark_jvm()
     callback = jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback
@@ -433,10 +433,25 @@ def assert_db173_gpu_data_writing_command(do_test, conf):
         ]
         assert len(matching_plans) > 0, \
             f"No captured plan contains all of {required_classes}"
+
+        gpu_optimized_write = "GpuOptimizeWriteExchangeExec"
+        cpu_optimized_write = ["OptimizeWriteExchangeExec", "DeltaOptimizedWriterExec"]
+        if optimized_write:
+            assert any(
+                callback.contains(plan, gpu_optimized_write) for plan in matching_plans
+            ), f"{gpu_optimized_write} is not found in the captured Delta write plan"
+        else:
+            assert not any(
+                callback.contains(plan, gpu_optimized_write) for plan in matching_plans
+            ), f"Optimize write is disabled but {gpu_optimized_write} was captured"
+
         for plan in captured_plans:
             for cpu_class in ["DataWritingCommandExec", "WriteFilesExec"]:
                 assert not callback.didFallBack(plan, cpu_class), \
                     f"Captured GPU Delta write also contains CPU {cpu_class}"
+            for cpu_class in cpu_optimized_write:
+                assert not callback.didFallBack(plan, cpu_class), \
+                    f"Captured GPU Delta write contains CPU optimized writer {cpu_class}"
         return result
     finally:
         callback.endCapture()
