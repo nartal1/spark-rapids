@@ -278,12 +278,14 @@ def test_delta_db173_native_managed_ctas_rtas(
     with_cpu_session(lambda spark: write_table(spark, cpu_table, False), conf=conf)
     assert_db173_gpu_data_writing_command(
         lambda spark: write_table(spark, gpu_table, False), conf=conf,
-        optimized_write=optimized_write)
+        optimized_write=optimized_write,
+        expected_atomic_gpu_class="GpuAtomicReplaceTableAsSelectExec")
 
     with_cpu_session(lambda spark: write_table(spark, cpu_table, True), conf=conf)
     assert_db173_gpu_data_writing_command(
         lambda spark: write_table(spark, gpu_table, True), conf=conf,
-        optimized_write=optimized_write)
+        optimized_write=optimized_write,
+        expected_atomic_gpu_class="GpuAtomicReplaceTableAsSelectExec")
 
     def table_state(spark, table):
         rows = spark.table(table).orderBy("carrier_id").collect()
@@ -399,13 +401,15 @@ def test_delta_db173_native_sql_ctas_rtas(spark_tmp_table_factory, optimized_wri
         lambda spark: execute_atomic_sql(spark, cpu_table, False), conf=conf)
     assert_db173_gpu_data_writing_command(
         lambda spark: execute_atomic_sql(spark, gpu_table, False), conf=conf,
-        optimized_write=optimized_write)
+        optimized_write=optimized_write,
+        expected_atomic_gpu_class="GpuAtomicCreateTableAsSelectExec")
 
     with_cpu_session(
         lambda spark: execute_atomic_sql(spark, cpu_table, True), conf=conf)
     assert_db173_gpu_data_writing_command(
         lambda spark: execute_atomic_sql(spark, gpu_table, True), conf=conf,
-        optimized_write=optimized_write)
+        optimized_write=optimized_write,
+        expected_atomic_gpu_class="GpuAtomicReplaceTableAsSelectExec")
 
     def table_state(spark, table):
         df = spark.table(table)
