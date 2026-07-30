@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * Copyright (c) 2023-2026, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,12 +25,13 @@ import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.datasources.FileFormatWriter
-import org.apache.spark.sql.hive.execution.SaveAsHiveFile
 import org.apache.spark.sql.rapids.GpuFileFormatWriter
 import org.apache.spark.sql.rapids.shims.TrampolineConnectShims.SparkSession
 
 // Base trait from which all hive insert statement physical execution extends.
-private[hive] trait GpuSaveAsHiveFile extends GpuDataWritingCommand with SaveAsHiveFile {
+// Do not extend Spark's SaveAsHiveFile here. The GPU implementation does not use its helpers,
+// and vendor runtimes can add binary-incompatible parent interfaces to that trait.
+private[hive] trait GpuSaveAsHiveFile extends GpuDataWritingCommand {
 
   // TODO(future): Examine compressions options.
   // - Apache Spark 3.1-3 has code to examine Hadoop compression settings
