@@ -15,25 +15,13 @@
  */
 
 /*** spark-rapids-shim-json-lines
-{"spark": "411"}
-{"spark": "412"}
-{"spark": "413"}
+{"spark": "410db183"}
 {"spark": "420"}
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
-import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
+import org.apache.spark.sql.execution.SampleExec
 
-/**
- * Shim for invalidateCache callback signature differences between Spark versions.
- * In Spark 4.0.x: (TableCatalog, Table, Identifier) => Unit
- * In Spark 4.1.0: (TableCatalog, Identifier) => Unit
- */
-object InvalidateCacheShims {
-  type InvalidateCacheType = (TableCatalog, Identifier) => Unit
-  
-  def getInvalidateCache(
-      cpuInvalidateCache: (TableCatalog, Identifier) => Unit): InvalidateCacheType = {
-    cpuInvalidateCache
-  }
+object SampleExecShims {
+  def resolvedSeed(sample: SampleExec): Long = sample.resolvedSeed
 }

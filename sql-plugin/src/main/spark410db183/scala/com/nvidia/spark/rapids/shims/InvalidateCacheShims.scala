@@ -15,6 +15,7 @@
  */
 
 /*** spark-rapids-shim-json-lines
+{"spark": "410db183"}
 {"spark": "411"}
 {"spark": "412"}
 {"spark": "413"}
@@ -22,19 +23,18 @@
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
-import org.apache.hadoop.conf.Configuration
-
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.connector.catalog.{Identifier, TableCatalog}
 
 /**
- * Shim for Parquet variant-related configurations in Spark 4.1.0+.
- * Sets PARQUET_ANNOTATE_VARIANT_LOGICAL_TYPE which is required by ParquetWriteSupport.
+ * Shim for invalidateCache callback signature differences between Spark versions.
+ * In Spark 4.0.x: (TableCatalog, Table, Identifier) => Unit
+ * In Spark 4.1.0: (TableCatalog, Identifier) => Unit
  */
-object ParquetVariantShims {
-  def setupParquetVariantConfig(conf: Configuration, sqlConf: SQLConf): Unit = {
-    // Set the variant annotation config that SparkToParquetSchemaConverter requires
-    conf.set(
-      SQLConf.PARQUET_ANNOTATE_VARIANT_LOGICAL_TYPE.key,
-      sqlConf.parquetAnnotateVariantLogicalType.toString)
+object InvalidateCacheShims {
+  type InvalidateCacheType = (TableCatalog, Identifier) => Unit
+  
+  def getInvalidateCache(
+      cpuInvalidateCache: (TableCatalog, Identifier) => Unit): InvalidateCacheType = {
+    cpuInvalidateCache
   }
 }

@@ -13,14 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 /*** spark-rapids-shim-json-lines
+{"spark": "410db183"}
+{"spark": "411"}
+{"spark": "412"}
+{"spark": "413"}
 {"spark": "420"}
 spark-rapids-shim-json-lines ***/
-
 package com.nvidia.spark.rapids.shims
 
-import org.apache.spark.sql.execution.SampleExec
-
-object SampleExecShims {
-  def resolvedSeed(sample: SampleExec): Long = sample.resolvedSeed
+object BloomFilterConstantsShims {
+  val BLOOM_FILTER_FORMAT_VERSION: Int = 2
 }
