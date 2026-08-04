@@ -1805,10 +1805,9 @@ def test_delta_write_column_name_mapping(spark_tmp_path, mapping):
 
 # Hash aggregate can be used in a metadata query for compaction which completely falls back
 compaction_allow = "HashAggregateExec"
-if is_databricks_runtime() and not (is_databricks143() or is_databricks173_or_later()):
-    # compaction can fallback due to unsupported WriteIntoDeltaCommand
-    # tracked by https://github.com/NVIDIA/spark-rapids/issues/11169
-    compaction_allow += "," + delta_write_fallback_allow
+if is_databricks_runtime():
+    # The native OPTIMIZE command stays on CPU while its nested write runs on GPU.
+    compaction_allow += ",ExecutedCommandExec"
 @allow_non_gpu(compaction_allow, *delta_meta_allow)
 @delta_lake
 @ignore_order
