@@ -66,9 +66,10 @@ source jenkins/databricks/common_vars.sh
 BASE_SPARK_VERSION=${BASE_SPARK_VERSION:-$(< /databricks/spark/VERSION)}
 
 # This branch is used only to validate issue #15430 on a snapshot DB 14.3 cluster.
-# Reuse the developer job's CI_PART1 mode to run the two parametrizations of the
-# failing test, then return so the job can delete the temporary cluster.
-if [[ "$TEST_MODE" == "CI_PART1" ]]; then
+# Reuse the developer job's DEFAULT mode to run the two parametrizations of the
+# failing test, then return so the job can delete the temporary cluster. DEFAULT
+# avoids the CI_PART1 DBFS artifact cleanup path if the build fails before upload.
+if [[ "$TEST_MODE" == "DEFAULT" ]]; then
     TESTS="parquet_write_test.py::test_non_empty_ctas" \
     TEST_PARALLEL=0 \
     SPARK_SUBMIT_FLAGS="$SPARK_CONF" \
