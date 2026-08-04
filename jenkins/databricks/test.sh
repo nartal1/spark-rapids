@@ -65,6 +65,18 @@ source jenkins/databricks/common_vars.sh
 
 BASE_SPARK_VERSION=${BASE_SPARK_VERSION:-$(< /databricks/spark/VERSION)}
 
+# This branch is used only to validate issue #15430 on a snapshot DB 14.3 cluster.
+# Reuse the developer job's CI_PART1 mode to run the two parametrizations of the
+# failing test, then return so the job can delete the temporary cluster.
+if [[ "$TEST_MODE" == "CI_PART1" ]]; then
+    TESTS="parquet_write_test.py::test_non_empty_ctas" \
+    TEST_PARALLEL=0 \
+    SPARK_SUBMIT_FLAGS="$SPARK_CONF" \
+        bash integration_tests/run_pyspark_from_build.sh \
+            --runtime_env="databricks" --test_type=$TEST_TYPE
+    exit
+fi
+
 # For Spark 4.x (Scala 2.13), the upstream base shim is 350 (Spark 3.5.0).
 # For Spark 3.x (Scala 2.12), the upstream base shim is 330 (Spark 3.3.0).
 if [[ "$BASE_SPARK_VERSION" == 4.* ]]; then
