@@ -213,6 +213,10 @@ if [ -n "$EXTRA_ENVS" ]; then
     export ${EXTRA_ENVS//','/' '}
 fi
 
+# This branch validates issue #15430 only on the DB 14.3 shim. Do not build the
+# unrelated default upstream Spark shim against the Databricks snapshot jars.
+WITH_DEFAULT_UPSTREAM_SHIM=0
+
 initialize
 if [[ $SKIP_DEP_INSTALL == "1" ]]
 then
