@@ -70,8 +70,10 @@ BASE_SPARK_VERSION=${BASE_SPARK_VERSION:-$(< /databricks/spark/VERSION)}
 # failing test, then return so the job can delete the temporary cluster. DEFAULT
 # avoids the CI_PART1 DBFS artifact cleanup path if the build fails before upload.
 if [[ "$TEST_MODE" == "DEFAULT" ]]; then
+    # Match the failing release pipeline's pytest worker configuration while
+    # still limiting collection to the two issue #15430 parametrizations.
     TESTS="parquet_write_test.py::test_non_empty_ctas" \
-    TEST_PARALLEL=0 \
+    TEST_PARALLEL=5 \
     SPARK_SUBMIT_FLAGS="$SPARK_CONF" \
         bash integration_tests/run_pyspark_from_build.sh \
             --runtime_env="databricks" --test_type=$TEST_TYPE
