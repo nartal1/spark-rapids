@@ -66,13 +66,15 @@ source jenkins/databricks/common_vars.sh
 BASE_SPARK_VERSION=${BASE_SPARK_VERSION:-$(< /databricks/spark/VERSION)}
 
 # This branch is used only to validate issue #15430 on a snapshot DB 14.3 cluster.
-# Reuse the developer job's DEFAULT mode to run the two parametrizations of the
-# failing test, then return so the job can delete the temporary cluster. DEFAULT
-# avoids the CI_PART1 DBFS artifact cleanup path if the build fails before upload.
+# Reuse the developer job's DEFAULT mode to run the test family that immediately
+# preceded the failure in release build 119, followed by the failing CTAS test.
+# Then return so the job can delete the temporary cluster. DEFAULT avoids the
+# CI_PART1 DBFS artifact cleanup path if the build fails before upload.
 if [[ "$TEST_MODE" == "DEFAULT" ]]; then
     # Match the failing release pipeline's pytest worker configuration while
-    # still limiting collection to the two issue #15430 parametrizations.
-    TESTS="parquet_write_test.py::test_non_empty_ctas" \
+    # preserving the worker-local test order observed immediately before issue
+    # #15430. This remains limited to two test functions.
+    TESTS="parquet_write_test.py::test_parquet_write_roundtrip_datetime_with_legacy_rebase parquet_write_test.py::test_non_empty_ctas" \
     TEST_PARALLEL=5 \
     SPARK_SUBMIT_FLAGS="$SPARK_CONF" \
         bash integration_tests/run_pyspark_from_build.sh \
