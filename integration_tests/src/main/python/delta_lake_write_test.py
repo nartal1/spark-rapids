@@ -215,6 +215,8 @@ def test_delta_write_round_trip_managed(spark_tmp_table_factory, enable_deletion
 @allow_non_gpu('AppendDataExecV1', 'AtomicCreateTableAsSelectExec',
                'AtomicReplaceTableAsSelectExec',
                *delta_meta_allow)
+@allow_non_gpu_conditional(is_databricks_version_or_later(18, 3),
+                           "OverwriteByExpressionExecV1")
 @delta_lake
 @ignore_order(local=True)
 @pytest.mark.skipif(not is_databricks173_or_later(), reason="DBR 17.3 native write path")
@@ -366,6 +368,8 @@ def test_delta_db173_native_managed_ctas_rtas(
 @allow_non_gpu('AppendDataExecV1', 'AtomicCreateTableAsSelectExec',
                'AtomicReplaceTableAsSelectExec',
                *delta_meta_allow)
+@allow_non_gpu_conditional(is_databricks_version_or_later(18, 3),
+                           "OverwriteByExpressionExecV1")
 @delta_lake
 @ignore_order(local=True)
 @pytest.mark.skipif(not is_databricks173_or_later(), reason="DBR 17.3 native write path")
@@ -383,6 +387,8 @@ def test_delta_db173_native_sql_ctas_rtas(
 @allow_non_gpu('AppendDataExecV1', 'AtomicCreateTableAsSelectExec',
                'AtomicReplaceTableAsSelectExec', 'DeltaOptimizedWriterExec',
                *delta_meta_allow)
+@allow_non_gpu_conditional(is_databricks_version_or_later(18, 3),
+                           "OverwriteByExpressionExecV1")
 @delta_lake
 @ignore_order(local=True)
 @pytest.mark.skipif(not is_databricks173_or_later(), reason="DBR 17.3 native write path")
@@ -397,6 +403,8 @@ def test_delta_db173_native_sql_ctas_rtas_legacy_optimized_write(
 @allow_non_gpu('AppendDataExecV1', 'AtomicCreateTableAsSelectExec',
                'AtomicReplaceTableAsSelectExec', 'EmptyRelationExec',
                *delta_meta_allow)
+@allow_non_gpu_conditional(is_databricks_version_or_later(18, 3),
+                           "OverwriteByExpressionExecV1")
 @delta_lake
 @ignore_order(local=True)
 @pytest.mark.skipif(not is_databricks173_or_later(), reason="DBR 17.3 native write path")
@@ -437,6 +445,8 @@ def _assert_db173_gpu_atomic_control_command(
 @allow_non_gpu('AppendDataExecV1', 'AtomicCreateTableAsSelectExec',
                'AtomicReplaceTableAsSelectExec',
                *delta_meta_allow)
+@allow_non_gpu_conditional(is_databricks_version_or_later(18, 3),
+                           "OverwriteByExpressionExecV1")
 @delta_lake
 @ignore_order(local=True)
 @pytest.mark.skipif(not is_databricks173_or_later(), reason="DBR 17.3 native write path")
@@ -828,6 +838,8 @@ def test_delta_rtas_sql(spark_tmp_table_factory, enable_deletion_vectors, use_cd
 @allow_non_gpu_conditional(
     is_databricks_runtime(),
     'AppendDataExecV1, AtomicCreateTableAsSelectExec, AtomicReplaceTableAsSelectExec')
+@allow_non_gpu_conditional(is_databricks_version_or_later(18, 3),
+                           "OverwriteByExpressionExecV1")
 @allow_non_gpu('DataWritingCommandExec', 'WriteFilesExec', *delta_meta_allow)
 @delta_lake
 @ignore_order(local=True)

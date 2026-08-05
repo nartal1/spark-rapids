@@ -336,16 +336,16 @@ class GpuRapidsProcessDeltaMergeJoinIterator(
     closeOnExcept(new ArrayBuffer[ColumnarBatch]) { results =>
       var leftOverBatch = input
       conditions.zip(outputs).foreach { case (condition, output) =>
-        closeOnExcept(leftOverBatch) { _ =>
-          if (leftOverBatch.numRows() > 0) {
-            val (matchBatch, notMatchBatch) =
-              splitBatchAndClose(leftOverBatch, inputTypes, condition)
-            leftOverBatch = notMatchBatch
+        if (leftOverBatch.numRows() > 0) {
+          val (matchBatch, notMatchBatch) =
+            splitBatchAndClose(leftOverBatch, inputTypes, condition)
+          leftOverBatch = closeOnExcept(notMatchBatch) { _ =>
             withResource(matchBatch) { _ =>
               output.foreach { exprs =>
                 results.append(GpuProjectExec.project(matchBatch, exprs))
               }
             }
+            notMatchBatch
           }
         }
       }

@@ -146,7 +146,7 @@ object RapidsDeletionVectors extends Logging {
             val provider = try {
               tahoeFileIndex.getRowIndexFilterForFile(addFile.path)
             } catch {
-              // DB-17.3 can assert here when the AddFile path and candidate path are equivalent
+              // Databricks can assert here when the AddFile path and candidate path are equivalent
               // but rendered differently. The direct rowIndexFilters map and DV descriptor map
               // still cover the file lookup, so skip this optional provider path.
               case e: AssertionError if isMissingRowIndexFilterAssertion(e) => None
@@ -364,6 +364,18 @@ object RapidsDeletionVectors extends Logging {
       rowGroupNumRows: Array[Int]): Long = {
     RapidsDeletionVectorRowCountUtils.countMarkedRows(
       scalaBitmap.cardinality, rowGroupOffsets, rowGroupNumRows) { countDeletedRow =>
+        scalaBitmap.forEach { deletedIndex: Long =>
+          countDeletedRow(deletedIndex)
+        }
+    }
+  }
+
+  def computeNumRowsAlive(
+      totalNumRows: Long,
+      scalaBitmap: RoaringBitmapArray,
+      chunkedBlocks: collection.Seq[BlockMetaData]): Int = {
+    RapidsDeletionVectorRowCountUtils.computeNumRowsAlive(
+      totalNumRows, scalaBitmap.cardinality, chunkedBlocks) { countDeletedRow =>
         scalaBitmap.forEach { deletedIndex: Long =>
           countDeletedRow(deletedIndex)
         }
