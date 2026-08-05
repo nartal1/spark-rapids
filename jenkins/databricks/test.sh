@@ -71,11 +71,11 @@ BASE_SPARK_VERSION=${BASE_SPARK_VERSION:-$(< /databricks/spark/VERSION)}
 # Then return so the job can delete the temporary cluster. DEFAULT avoids the
 # CI_PART1 DBFS artifact cleanup path if the build fails before upload.
 if [[ "$TEST_MODE" == "DEFAULT" ]]; then
-    # Match the failing release pipeline's pytest worker configuration while
-    # preserving the worker-local test order observed immediately before issue
+    # Keep the predecessor family and CTAS cases in one xdist worker so they
+    # preserve the worker-local test history observed immediately before issue
     # #15430. This remains limited to two test functions.
     TESTS="parquet_write_test.py::test_parquet_write_roundtrip_datetime_with_legacy_rebase parquet_write_test.py::test_non_empty_ctas" \
-    TEST_PARALLEL=5 \
+    TEST_PARALLEL=1 \
     SPARK_SUBMIT_FLAGS="$SPARK_CONF" \
         bash integration_tests/run_pyspark_from_build.sh \
             --runtime_env="databricks" --test_type=$TEST_TYPE
