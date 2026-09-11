@@ -140,6 +140,7 @@ def test_parquet_variant_shredding_and_scan_pushdown_fall_back(spark_tmp_path):
 
     read_conf = dict(_variant_parquet_conf)
     read_conf['spark.sql.variant.pushVariantIntoScan'] = 'true'
+    # TODO(#14251): Replace this fallback assertion when pushed Variant scans run on GPU.
     assert_gpu_fallback_collect(
         do_it, 'FileSourceScanExec', conf=read_conf)
 
