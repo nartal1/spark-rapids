@@ -195,6 +195,39 @@ def test_parquet_shredded_raw_variant_scan_falls_back(
         do_it, fallback_class, conf=read_conf)
 
 
+@allow_non_gpu('FileSourceScanExec', 'BatchScanExec', 'ColumnarToRowExec',
+               'ProjectExec', 'VariantGet')
+@incompat
+@pytest.mark.parametrize('v1_enabled_list,fallback_class', [
+    ('parquet', 'FileSourceScanExec'),
+    ('', 'BatchScanExec'),
+], ids=['v1', 'v2'])
+@pytest.mark.skipif(not is_spark_411_or_later(),
+                    reason='Variant shredding is enabled by default in Spark 4.1.1+')
+def test_parquet_shredded_variant_aggregate_returns_to_gpu(
+        spark_tmp_path, v1_enabled_list, fallback_class):
+    data_path = spark_tmp_path + '/SHREDDED_VARIANT_AGGREGATE_PARQUET'
+    write_conf = {'spark.sql.variant.writeShredding.enabled': 'true'}
+    with_cpu_session(
+        lambda spark: _write_variant_parquet(spark, data_path), conf=write_conf)
+
+    def do_it(spark):
+        return spark.read.parquet(data_path) \
+            .selectExpr("try_variant_get(v, '$.x', 'int') AS x") \
+            .selectExpr('sum(x) AS total')
+
+    read_conf = dict(_variant_parquet_conf)
+    read_conf['spark.sql.sources.useV1SourceList'] = v1_enabled_list
+    read_conf['spark.sql.adaptive.enabled'] = 'true'
+    read_conf['spark.sql.variant.pushVariantIntoScan'] = 'false'
+    read_conf['spark.sql.variant.allowReadingShredded'] = 'true'
+    assert_cpu_and_gpu_are_equal_collect_with_capture(
+        do_it,
+        exist_classes=f'{fallback_class},ProjectExec,GpuHashAggregateExec',
+        non_exist_classes='GpuVariantGet',
+        conf=read_conf)
+
+
 @incompat
 @pytest.mark.parametrize('v1_enabled_list', ['parquet', ''], ids=['v1', 'v2'])
 @pytest.mark.skipif(is_before_spark_400(), reason='VariantType is available in Spark 4.0+')

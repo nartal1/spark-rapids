@@ -164,17 +164,30 @@ case class GpuParquetScan(
 }
 
 object GpuParquetScan {
-  private def tagScanAndAncestorsForCpu(meta: RapidsMeta[_, _, _], reason: String): Unit = {
+  private def hasPotentiallyShreddedVariant(
+      dataTypes: Iterable[DataType], sqlConf: SQLConf): Boolean = {
+    dataTypes.exists { dataType =>
+      TrampolineUtil.dataTypeExistsRecursively(
+        dataType, ParquetVariantShims.isPotentiallyShreddedVariant(_, sqlConf))
+    }
+  }
+
+  private def tagVariantScanPrefixForCpu(
+      meta: RapidsMeta[_, _, _], reason: String, sqlConf: SQLConf): Unit = {
     meta.willNotWorkOnGpu(reason)
     var ancestor = meta.parent
-    while (ancestor.isDefined) {
-      ancestor.get.wrapped match {
+    var outputContainsVariant = true
+    while (ancestor.isDefined && outputContainsVariant) {
+      val current = ancestor.get
+      current.wrapped match {
         case plan: SparkPlan =>
           plan.setTagValue(RapidsMeta.gpuSupportedTag,
             plan.getTagValue(RapidsMeta.gpuSupportedTag).getOrElse(Set.empty) + reason)
+          outputContainsVariant = hasPotentiallyShreddedVariant(
+            plan.output.map(_.dataType), sqlConf)
         case _ =>
       }
-      ancestor = ancestor.get.parent
+      ancestor = current.parent
     }
   }
 
@@ -209,16 +222,13 @@ object GpuParquetScan {
     }
 
     val sqlConf = sparkSession.sessionState.conf
-    val schemaHasPotentiallyShreddedVariant = readSchema.exists { field =>
-      TrampolineUtil.dataTypeExistsRecursively(
-        field.dataType, ParquetVariantShims.isPotentiallyShreddedVariant(_, sqlConf))
-    }
+    val schemaHasPotentiallyShreddedVariant =
+      hasPotentiallyShreddedVariant(readSchema.map(_.dataType), sqlConf)
     if (schemaHasPotentiallyShreddedVariant) {
       val reason = "GPU Parquet reader cannot safely read Variant columns when Spark allows " +
         "shredded Variant input"
-      // A CPU-to-GPU transition cannot carry a raw Variant column, so keep the scan and its
-      // ancestor operators on CPU.
-      tagScanAndAncestorsForCpu(meta, reason)
+      // Keep the scan and its consumers on CPU until an operator no longer outputs Variant.
+      tagVariantScanPrefixForCpu(meta, reason, sqlConf)
     }
 
     FileFormatChecks.tag(meta, readSchema, ParquetFormatType, ReadFileOp)
