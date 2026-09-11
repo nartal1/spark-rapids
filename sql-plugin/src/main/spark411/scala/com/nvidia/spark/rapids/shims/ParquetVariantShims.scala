@@ -25,7 +25,9 @@ package com.nvidia.spark.rapids.shims
 
 import org.apache.hadoop.conf.Configuration
 
+import org.apache.spark.sql.execution.datasources.VariantMetadata
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.DataType
 
 /**
  * Shim for Parquet variant-related configurations in Spark 4.1.0+.
@@ -39,4 +41,7 @@ object ParquetVariantShims {
       SQLConf.PARQUET_ANNOTATE_VARIANT_LOGICAL_TYPE.key,
       sqlConf.parquetAnnotateVariantLogicalType.toString)
   }
+
+  def isPushedVariantStruct(dataType: DataType): Boolean =
+    VariantMetadata.isVariantStruct(dataType)
 }
