@@ -65,4 +65,6 @@ object ParquetVariantShims {
   }
 
   def isPushedVariantStruct(_dataType: DataType): Boolean = false
+
+  def isPotentiallyShreddedVariant(_dataType: DataType, _sqlConf: SQLConf): Boolean = false
 }

@@ -38,8 +38,10 @@ _variant_write_conf = {}
 if is_spark_411_or_later():
     # Spark 4.1+ pushes Variant extraction into the Parquet reader and writes shredded
     # Variant columns by default. The GPU implementation currently operates on unshredded
-    # Variant columns, so disable both features when exercising GpuVariantGet.
+    # Variant columns, so disable pushdown and require unshredded reads when exercising
+    # GpuVariantGet.
     _variant_parquet_conf['spark.sql.variant.pushVariantIntoScan'] = 'false'
+    _variant_parquet_conf['spark.sql.variant.allowReadingShredded'] = 'false'
     _variant_write_conf['spark.sql.variant.writeShredding.enabled'] = 'false'
 
 
@@ -117,6 +119,7 @@ def test_parquet_variant_write_falls_back(spark_tmp_path):
             "try_variant_get(v, '$.n.num', 'int') AS num")
 
     write_conf = dict(_variant_parquet_conf)
+    write_conf.update(_variant_write_conf)
     write_conf['spark.rapids.sql.format.parquet.read.enabled'] = 'false'
     assert_gpu_fallback_write(
         write_data, read_data, spark_tmp_path, ['DataWritingCommandExec', 'WriteFilesExec'],
@@ -140,9 +143,56 @@ def test_parquet_variant_shredding_and_scan_pushdown_fall_back(spark_tmp_path):
 
     read_conf = dict(_variant_parquet_conf)
     read_conf['spark.sql.variant.pushVariantIntoScan'] = 'true'
+    read_conf['spark.sql.variant.allowReadingShredded'] = 'true'
     # TODO(#14251): Replace this fallback assertion when pushed Variant scans run on GPU.
     assert_gpu_fallback_collect(
         do_it, 'FileSourceScanExec', conf=read_conf)
+
+
+@allow_non_gpu('FileSourceScanExec', 'BatchScanExec', 'ColumnarToRowExec',
+               'ProjectExec', 'VariantGet', 'ShuffleExchangeExec')
+@incompat
+@pytest.mark.parametrize('pushdown_enabled,nested_pass_through,repartition_before_extract', [
+    ('true', True, False),
+    ('false', False, False),
+    ('false', False, True),
+], ids=['nested-pass-through', 'pushdown-disabled', 'aqe-query-stage'])
+@pytest.mark.parametrize('v1_enabled_list,fallback_class', [
+    ('parquet', 'FileSourceScanExec'),
+    ('', 'BatchScanExec'),
+], ids=['v1', 'v2'])
+@pytest.mark.skipif(not is_spark_411_or_later(),
+                    reason='Variant shredding is enabled by default in Spark 4.1.1+')
+def test_parquet_shredded_raw_variant_scan_falls_back(
+        spark_tmp_path, pushdown_enabled, nested_pass_through, repartition_before_extract,
+        v1_enabled_list, fallback_class):
+    data_path = spark_tmp_path + '/RAW_SHREDDED_VARIANT_SCAN_FALLBACK_PARQUET'
+
+    def write_data(spark):
+        spark.sql("""
+          SELECT
+            parse_json('{"x":7}') AS v,
+            named_struct('payload', parse_json('{"x":42}')) AS nested
+        """).write.mode('overwrite').parquet(data_path)
+
+    write_conf = {'spark.sql.variant.writeShredding.enabled': 'true'}
+    with_cpu_session(write_data, conf=write_conf)
+
+    def do_it(spark):
+        df = spark.read.parquet(data_path)
+        if nested_pass_through:
+            return df.selectExpr('to_json(nested) AS nested')
+        if repartition_before_extract:
+            df = df.repartition(2)
+        return df.selectExpr("try_variant_get(v, '$.x', 'int') AS x")
+
+    read_conf = dict(_variant_parquet_conf)
+    read_conf['spark.sql.sources.useV1SourceList'] = v1_enabled_list
+    read_conf['spark.sql.adaptive.enabled'] = 'true'
+    read_conf['spark.sql.variant.pushVariantIntoScan'] = pushdown_enabled
+    read_conf['spark.sql.variant.allowReadingShredded'] = 'true'
+    assert_gpu_fallback_collect(
+        do_it, fallback_class, conf=read_conf)
 
 
 @incompat

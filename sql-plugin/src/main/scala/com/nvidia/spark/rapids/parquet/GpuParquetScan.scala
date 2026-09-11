@@ -74,7 +74,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
 import org.apache.spark.sql.connector.read.{InputPartition, PartitionReader, PartitionReaderFactory}
-import org.apache.spark.sql.execution.QueryExecutionException
+import org.apache.spark.sql.execution.{QueryExecutionException, SparkPlan}
 import org.apache.spark.sql.execution.datasources.{DataSourceUtils, PartitionedFile, PartitioningAwareFileIndex, SchemaColumnConvertNotSupportedException}
 import org.apache.spark.sql.execution.datasources.v2.FileScan
 import org.apache.spark.sql.execution.datasources.v2.parquet.ParquetScan
@@ -164,6 +164,20 @@ case class GpuParquetScan(
 }
 
 object GpuParquetScan {
+  private def tagScanAndAncestorsForCpu(meta: RapidsMeta[_, _, _], reason: String): Unit = {
+    meta.willNotWorkOnGpu(reason)
+    var ancestor = meta.parent
+    while (ancestor.isDefined) {
+      ancestor.get.wrapped match {
+        case plan: SparkPlan =>
+          plan.setTagValue(RapidsMeta.gpuSupportedTag,
+            plan.getTagValue(RapidsMeta.gpuSupportedTag).getOrElse(Set.empty) + reason)
+        case _ =>
+      }
+      ancestor = ancestor.get.parent
+    }
+  }
+
   def tagSupport(scanMeta: ScanMeta[ParquetScan]): Unit = {
     val scan = scanMeta.wrapped
     val schema = StructType(scan.readDataSchema ++ scan.readPartitionSchema)
@@ -192,6 +206,19 @@ object GpuParquetScan {
     }
     if (schemaHasPushedVariant) {
       meta.willNotWorkOnGpu("GPU Parquet reader does not support Variant extraction pushdown")
+    }
+
+    val sqlConf = sparkSession.sessionState.conf
+    val schemaHasPotentiallyShreddedVariant = readSchema.exists { field =>
+      TrampolineUtil.dataTypeExistsRecursively(
+        field.dataType, ParquetVariantShims.isPotentiallyShreddedVariant(_, sqlConf))
+    }
+    if (schemaHasPotentiallyShreddedVariant) {
+      val reason = "GPU Parquet reader cannot safely read Variant columns when Spark allows " +
+        "shredded Variant input"
+      // A CPU-to-GPU transition cannot carry a raw Variant column, so keep the scan and its
+      // ancestor operators on CPU.
+      tagScanAndAncestorsForCpu(meta, reason)
     }
 
     FileFormatChecks.tag(meta, readSchema, ParquetFormatType, ReadFileOp)
