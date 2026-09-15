@@ -36,6 +36,10 @@ _native_optimize_write_conf = copy_and_update(delta_writes_enabled_conf, {
     "spark.sql.adaptive.enabled": "false"
 })
 
+_native_optimize_dv_write_conf = copy_and_update(_native_optimize_write_conf, {
+    "spark.databricks.delta.delete.deletionVectors.persistent": "true"
+})
+
 _liquid_optimize_dv_conf = copy_and_update(_optimize_conf, {
     "spark.databricks.delta.delete.deletionVectors.persistent": "true"
 })
@@ -229,6 +233,9 @@ def _delete_rows_and_disable_deletion_vectors(spark, path):
 def _delete_rows_with_deletion_vectors(spark, path):
     num_deleted = spark.sql(f"DELETE FROM delta.`{path}` WHERE b = 'a'").collect()[0][0]
     assert num_deleted > 0, "Expected DELETE to create deletion vectors"
+    dv_adds = spark.read.json(path + "/_delta_log/*.json") \
+        .where("add.deletionVector IS NOT NULL").count()
+    assert dv_adds > 0, "Expected the table to contain deletion-vector AddFiles"
 
 
 def _delete_liquid_rows_with_deletion_vectors(spark, path):
@@ -415,12 +422,16 @@ def _assert_liquid_optimize_gpu_write_parity(
         assert_data_and_log_parity()
 
 
-def _assert_native_optimize_gpu_write_parity(spark_tmp_path):
+def _assert_native_optimize_gpu_write_parity(spark_tmp_path, enable_deletion_vectors):
     data_path = spark_tmp_path + "/DELTA_NATIVE_OPTIMIZE_WRITE"
     cpu_path = data_path + "/CPU"
     gpu_path = data_path + "/GPU"
-    conf = _native_optimize_write_conf
-    _setup_tables(False, cpu_path, gpu_path, None, None, conf)
+    conf = _native_optimize_dv_write_conf if enable_deletion_vectors \
+        else _native_optimize_write_conf
+    post_setup_func = _delete_rows_with_deletion_vectors if enable_deletion_vectors else None
+    _setup_tables(
+        enable_deletion_vectors, cpu_path, gpu_path, None, None, conf,
+        post_setup_func=post_setup_func)
     files_before = {
         path: with_cpu_session(
             lambda spark: len(spark.read.format("delta").load(path).inputFiles()), conf=conf)
@@ -469,8 +480,9 @@ def test_delta_optimize_unpartitioned_table(spark_tmp_path, enable_deletion_vect
 @delta_lake
 @pytest.mark.skipif(not (is_databricks143() or is_databricks173_or_later()),
                     reason="Native DBR OPTIMIZE write coverage is for DBR 14.3 and 17.3+")
-def test_delta_native_optimize_gpu_write(spark_tmp_path):
-    _assert_native_optimize_gpu_write_parity(spark_tmp_path)
+@pytest.mark.parametrize("enable_deletion_vectors", deletion_vector_values, ids=idfn)
+def test_delta_native_optimize_gpu_write(spark_tmp_path, enable_deletion_vectors):
+    _assert_native_optimize_gpu_write_parity(spark_tmp_path, enable_deletion_vectors)
 
 
 @allow_non_gpu(*delta_meta_allow)
