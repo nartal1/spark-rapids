@@ -37,7 +37,9 @@ _native_optimize_write_conf = copy_and_update(delta_writes_enabled_conf, {
 })
 
 _native_optimize_dv_write_conf = copy_and_update(_native_optimize_write_conf, {
-    "spark.databricks.delta.delete.deletionVectors.persistent": "true"
+    "spark.databricks.delta.delete.deletionVectors.persistent": "true",
+    # A DV DELETE can force background compaction, overriding the normal auto-compact setting.
+    "spark.databricks.delta.delete.enableForceBackgroundAutoCompact": "false"
 })
 
 _liquid_optimize_dv_conf = copy_and_update(_optimize_conf, {
