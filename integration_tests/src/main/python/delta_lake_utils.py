@@ -58,7 +58,7 @@ if is_databricks173_or_later():
     # DBR 17.3 DV write/update paths can serialize Delta stats JSON on the CPU bridge.
     delta_meta_allow += ["StructsToJson", "CreateNamedStruct"]
 
-delta_write = ["RapidsDeltaWrite"]
+delta_write = ["GpuRapidsDeltaWriteExec"]
 
 
 def _loaded_delta_lake_version():
@@ -410,7 +410,9 @@ def assert_delta_row_tracking_dml(spark_tmp_path, dml_sql, conf,
     with_cpu_session(lambda spark: assert_gpu_and_cpu_latest_delta_log_equivalent(spark, data_path),
                      conf=conf)
 
-def assert_rapids_delta_write(do_test, conf):
+def assert_rapids_delta_write(
+        do_test, conf, require_non_empty=False, expected_command=None,
+        expected_classes=None):
     """
     Validates that a Delta write operation executed on the GPU produces the expected execution plans.
     This function starts a plan capture mechanism using the Spark JVM's ExecutionPlanCaptureCallback,
@@ -424,6 +426,13 @@ def assert_rapids_delta_write(do_test, conf):
         A function that performs the Delta write operation to be validated.
     conf : dict
         A dictionary of configuration options to be passed to the GPU session.
+    require_non_empty : bool
+        When true, require at least one captured plan. This is useful when a no-op is not valid
+        evidence for the feature being tested.
+    expected_command : str, optional
+        Additional GPU command or execution class that must be present in a captured plan.
+    expected_classes : iterable of str, optional
+        Additional GPU plan classes that must be present in a captured plan.
 
     Returns
     -------
@@ -435,7 +444,20 @@ def assert_rapids_delta_write(do_test, conf):
     try:
         result = with_gpu_session(do_test, conf=conf)
         captured_plans = jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback.getResultsWithTimeout(10000)
-        # Some write functions are no-op. We may not capture any GPU plan.
+        if require_non_empty:
+            assert len(captured_plans) > 0, "No execution plans captured for Delta write"
+        if expected_command is not None:
+            assert any(
+                jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback.contains(
+                    plan, expected_command) for plan in captured_plans), \
+                f"{expected_command} is not found in any captured plan"
+        for cls in expected_classes or ():
+            assert any(
+                jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback.contains(
+                    plan, cls) for plan in captured_plans), \
+                f"{cls} is not found in any captured plan"
+        # Some write functions are no-op. We may not capture any GPU plan unless the caller
+        # explicitly requires one.
         if len(captured_plans) > 0:
             for cls in delta_write:
                 found = False
@@ -444,6 +466,10 @@ def assert_rapids_delta_write(do_test, conf):
                     if found:
                         break
                 assert found, f"{cls} is not found in any captured plan"
+            for plan in captured_plans:
+                assert not jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback.didFallBack(
+                    plan, "RapidsDeltaWriteExec"), \
+                    "Captured Delta write contains CPU RapidsDeltaWriteExec"
         return result
     finally:
         jvm.org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback.endCapture()
