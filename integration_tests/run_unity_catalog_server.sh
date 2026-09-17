@@ -56,6 +56,27 @@ die() {
   exit 1
 }
 
+http_get_succeeds() {
+  local url=$1
+  local quiet=${2:-1}
+  case "$HTTP_CLIENT" in
+    curl)
+      if [[ "$quiet" -eq 1 ]]; then
+        curl -s -f -o /dev/null -m 5 "$url"
+      else
+        curl -sS -f -o /dev/null -m 5 "$url"
+      fi
+      ;;
+    wget)
+      if [[ "$quiet" -eq 1 ]]; then
+        wget -q -T 5 -t 1 -O /dev/null "$url"
+      else
+        wget -S -T 5 -t 1 -O /dev/null "$url"
+      fi
+      ;;
+  esac
+}
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -81,6 +102,14 @@ while [[ $# -gt 0 ]]; do
     *) die "unknown option '$1', see --help" ;;
   esac
 done
+
+if command -v curl >/dev/null 2>&1; then
+  HTTP_CLIENT='curl'
+elif command -v wget >/dev/null 2>&1; then
+  HTTP_CLIENT='wget'
+else
+  die "curl or wget is required to check Unity Catalog server readiness"
+fi
 
 # ---------------------------------------------------------------------------
 # Versions
@@ -253,15 +282,28 @@ java -Dvertx.cacheDirBase="$RUN_DIR/vertx-cache" \
 UC_PID=$!
 
 catalogs_url="${UC_URI}api/2.1/unity-catalog/catalogs"
+server_ready=0
 for _ in $(seq 1 60); do
-  if curl -s -f -o /dev/null -m 5 "$catalogs_url" 2>/dev/null; then
+  if http_get_succeeds "$catalogs_url" 2>/dev/null; then
+    server_ready=1
     break
   fi
   kill -0 "$UC_PID" 2>/dev/null || break
   sleep 1
 done
-if ! curl -s -f -o /dev/null -m 5 "$catalogs_url" 2>/dev/null; then
-  >&2 echo "Unity Catalog server did not become ready, its log follows"
+if [[ "$server_ready" -eq 0 ]] && http_get_succeeds "$catalogs_url" 0; then
+  server_ready=1
+fi
+if [[ "$server_ready" -eq 0 ]]; then
+  >&2 echo "Unity Catalog server did not become ready using $HTTP_CLIENT"
+  for port in "$UC_PORT" $((UC_PORT + 1)); do
+    if port_in_use "$port"; then
+      >&2 echo "Port $port accepts TCP connections"
+    else
+      >&2 echo "Port $port does not accept TCP connections"
+    fi
+  done
+  >&2 echo "Unity Catalog server log follows"
   >&2 cat "$RUN_DIR/server.log"
   exit 1
 fi
