@@ -79,6 +79,11 @@ class GpuColumnVectorVariantSuite extends AnyFunSuite {
       StructType(Seq(StructField("v", VariantType, nullable = true)))))
   }
 
+  test("CPU to GPU transitions reject Variant") {
+    assert(!GpuRowToColumnConverter.supportsType(VariantType))
+    assert(!HostColumnarToGpu.supportsType(VariantType))
+  }
+
   test("Variant conversion requires value and metadata byte children") {
     withResource(ColumnVector.fromLists(
         byteListType, Arrays.asList(Byte.box(1.toByte)))) { value =>

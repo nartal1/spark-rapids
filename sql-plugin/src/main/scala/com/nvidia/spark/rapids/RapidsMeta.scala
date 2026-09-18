@@ -758,6 +758,37 @@ abstract class SparkPlanMeta[INPUT <: SparkPlan](plan: INPUT,
   }
 
   /**
+   * Prevent a GPU operator from being placed directly above a CPU operator when the transition
+   * cannot materialize the CPU output on the GPU. Row-based children use GpuRowToColumnarExec.
+   * Columnar children use HostColumnarToGpu, except that nested schemas are converted through
+   * rows by GpuTransitionOverrides. Without this check, unsupported types fail at execution time
+   * instead of making the GPU operator fall back during planning.
+   */
+  private def tagUnsupportedCpuToGpuTransitions(): Unit = {
+    childPlans.foreach(_.tagUnsupportedCpuToGpuTransitions())
+
+    if (canThisBeReplaced) {
+      childPlans.filterNot(_.canThisBeReplaced).foreach { child =>
+        val supportsTransition = if (!child.supportsColumnar ||
+            DataTypeUtils.hasNestedTypes(child.wrapped.schema)) {
+          GpuRowToColumnConverter.supportsType _
+        } else {
+          HostColumnarToGpu.supportsType _
+        }
+        val unsupportedTypes = child.outputAttributes.map(_.dataType)
+          .filterNot(supportsTransition)
+          .map(_.catalogString)
+          .distinct
+          .sorted
+        if (unsupportedTypes.nonEmpty) {
+          willNotWorkOnGpu("a CPU child cannot be converted to GPU because its output " +
+            s"contains unsupported type(s): ${unsupportedTypes.mkString(", ")}")
+        }
+      }
+    }
+  }
+
+  /**
    * Run rules that happen for the entire tree after it has been tagged initially.
    */
   def runAfterTagRules(): Unit = {
@@ -780,15 +811,20 @@ abstract class SparkPlanMeta[INPUT <: SparkPlan](plan: INPUT,
     // [SparkPlan (with first input_file_xxx expression), FileScan) to run on GPU
     InputFileBlockRule(this.asInstanceOf[SparkPlanMeta[SparkPlan]])
 
-    // 2) For shuffles, avoid replacing the shuffle if the child is not going to be replaced.
+    // 2) Avoid GPU transitions from CPU operators when the output contains a type that the
+    //    selected transition cannot materialize. Run this before dependent parent/child and
+    //    broadcast fixups so they see the final replacement tags.
+    tagUnsupportedCpuToGpuTransitions()
+
+    // 3) For shuffles, avoid replacing the shuffle if the child is not going to be replaced.
     fixUpExchangeOverhead()
 
-    // 3) Some child nodes can't run on GPU if parent nodes can't run on GPU.
+    // 4) Some child nodes can't run on GPU if parent nodes can't run on GPU.
     // WriteFilesExec is a new operator from Spark version 340,
     // Did not extract a shim code for simplicity
     tagChildAccordingToParent(this.asInstanceOf[SparkPlanMeta[SparkPlan]], "WriteFilesExec")
 
-    // 4) InputFileBlockRule may change the meta of broadcast join and its child plans,
+    // 5) Earlier rules may change the meta of broadcast joins and their child plans,
     //    and this change may cause mismatch between the join and its build side
     //    BroadcastExchangeExec, leading to errors. Need to fix the mismatch.
     fixUpBroadcastJoins()

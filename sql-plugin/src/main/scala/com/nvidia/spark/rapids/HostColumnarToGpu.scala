@@ -39,6 +39,14 @@ import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch, Column
 
 object HostColumnarToGpu extends Logging {
 
+  /** Whether a Spark column vector with this type can be copied directly to the GPU. */
+  def supportsType(dataType: DataType): Boolean = dataType match {
+    case NullType | BooleanType | ByteType | ShortType | IntegerType | DateType |
+         LongType | TimestampType | FloatType | DoubleType | StringType | BinaryType => true
+    case _: DecimalType => true
+    case other => GpuTypeShims.isColumnarCopySupportedForType(other)
+  }
+
   // use reflection to get access to a private field in a class
   private def getClassFieldAccessible(className: String, fieldName: String) = {
     val classObj = ShimReflectionUtils.loadClass(className)
@@ -162,7 +170,7 @@ object HostColumnarToGpu extends Logging {
               ColumnarCopyHelper.decimal128Copy(cv, b, rows, dt.precision, dt.scale)
             }
         }
-      case other if GpuTypeShims.isColumnarCopySupportedForType(other) =>
+      case other if supportsType(other) =>
         GpuTypeShims.columnarCopy(cv, b, other, rows)
       case t =>
         throw new UnsupportedOperationException(

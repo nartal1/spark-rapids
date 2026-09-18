@@ -15,10 +15,11 @@
 from typing import Callable, Dict, Optional
 
 import pytest
+import pyspark.sql.functions as F
 from pyspark.sql.types import ArrayType, BinaryType
 
 from asserts import (assert_equal_with_local_sort, assert_gpu_and_cpu_are_equal_collect,
-                     assert_gpu_fallback_collect)
+                     assert_gpu_fallback_collect, assert_gpu_fallback_write)
 from conftest import is_iceberg_remote_catalog
 from data_gen import gen_df, copy_and_update, RepeatSeqGen
 from iceberg import (create_iceberg_table,
@@ -28,8 +29,10 @@ from iceberg import (create_iceberg_table,
                      iceberg_unsupported_mark, _build_tblprops,
                      ctas_partition_transforms, supports_iceberg_v3,
                      ICEBERG_V3_UNSUPPORTED_REASON)
-from marks import iceberg, ignore_order, allow_non_gpu, allow_non_gpu_conditional, datagen_overrides
-from spark_session import with_gpu_session, with_cpu_session, is_spark_400_or_later
+from marks import (iceberg, ignore_order, allow_non_gpu, allow_non_gpu_conditional,
+                   datagen_overrides)
+from spark_session import (with_gpu_session, with_cpu_session, is_spark_400_or_later,
+                           is_spark_411_or_later)
 
 pytestmark = [
     iceberg_unsupported_mark,
@@ -131,6 +134,81 @@ def test_ctas_v3_fallback(spark_tmp_table_factory):
         run_ctas,
         "AtomicCreateTableAsSelectExec",
         conf=iceberg_write_enabled_conf)
+
+
+@iceberg
+@pytest.mark.skipif(not supports_iceberg_v3, reason=ICEBERG_V3_UNSUPPORTED_REASON)
+@pytest.mark.skipif(not is_spark_411_or_later(),
+                    reason="Variant shredding is enabled by default in Spark 4.1.1+")
+@pytest.mark.skipif(is_iceberg_remote_catalog(), reason="Requires a local Hadoop catalog")
+@ignore_order(local=True)
+@allow_non_gpu("AtomicCreateTableAsSelectExec", "CreateTableAsSelectExec", "AppendDataExec",
+               "FileSourceScanExec", "BatchScanExec", "ColumnarToRowExec", "ProjectExec",
+               "ShuffleExchangeExec",
+               "SortExec")
+def test_ctas_v3_variant_read_falls_back_before_row_to_columnar(
+        spark_tmp_path, spark_tmp_table_factory):
+    source_path = spark_tmp_path + "/SHREDDED_VARIANT_PARQUET"
+    result_path = spark_tmp_path + "/VARIANT_READ_RESULT"
+    target_table = get_full_table_name(spark_tmp_table_factory)
+
+    def write_source(spark):
+        base_df = spark.range(300).select(
+            F.col("id").alias("product_id"),
+            (F.col("id") % 100).cast("long").alias("partition_col"),
+            F.concat(F.lit("Product_"), F.col("id")).alias("product_name"),
+            (F.col("id") % 2 == 0).alias("active"))
+        json_col = F.to_json(F.struct(
+            F.col("product_id").alias("id"),
+            F.col("product_name").alias("name"),
+            F.col("active")))
+        base_df.withColumn("variant_col", F.parse_json(json_col)).drop("active") \
+            .write.mode("overwrite").parquet(source_path)
+
+    with_cpu_session(write_source, conf={
+        "spark.sql.variant.writeShredding.enabled": "true"
+    })
+
+    props_sql = _props_to_sql(_build_tblprops({
+        "format-version": "3",
+        "write.format.default": "parquet",
+    }))
+    conf = copy_and_update(iceberg_write_enabled_conf, {
+        "spark.sql.sources.useV1SourceList": "parquet",
+        "spark.sql.variant.pushVariantIntoScan": "true",
+        "spark.sql.variant.allowReadingShredded": "true",
+    })
+
+    def create_table(spark):
+        spark.sql(f"DROP TABLE IF EXISTS {target_table}")
+        spark.sql(
+            f"CREATE TABLE {target_table} USING ICEBERG "
+            "PARTITIONED BY (truncate(10, partition_col)) "
+            f"TBLPROPERTIES ({props_sql}) "
+            f"AS SELECT * FROM parquet.`{source_path}`")
+
+    with_gpu_session(create_table, conf=conf)
+
+    def write_result(spark, path):
+        spark.sql(f"""SELECT product_id,
+            variant_get(variant_col, '$.id', 'bigint') AS variant_id,
+            variant_get(variant_col, '$.name', 'string') AS variant_name,
+            variant_get(variant_col, '$.active', 'boolean') AS variant_active
+            FROM {target_table}""").write.mode("overwrite").parquet(path)
+
+    def read_result(spark, path):
+        return spark.read.parquet(path)
+
+    assert_gpu_fallback_write(
+        write_result,
+        read_result,
+        result_path,
+        ["BatchScanExec", "ProjectExec"],
+        conf=conf)
+
+    gpu_count = with_cpu_session(
+        lambda spark: spark.read.parquet(result_path + "/GPU").count(), conf=conf)
+    assert gpu_count == 300
 
 
 @iceberg
