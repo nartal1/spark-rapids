@@ -286,11 +286,20 @@ def _stable_table_state(spark, table):
 
 def _catalog_table_state(tables_api, table):
     table_info = tables_api.getTable(table, None, None)
+    columns = table_info.getColumns()
+    assert columns is not None, f"Unity Catalog returned no column metadata for {table}"
     return {
         "catalog": table_info.getCatalogName(),
+        "columns": sorted([{
+            "name": column.getName(),
+            "nullable": column.getNullable(),
+            "partitionIndex": column.getPartitionIndex(),
+            "position": column.getPosition(),
+            "typeText": column.getTypeText(),
+        } for column in columns], key=lambda column: column["position"]),
         "dataSourceFormat": table_info.getDataSourceFormat().toString(),
         "properties": _normalize_catalog_properties(table_info.getProperties()),
-        "schema": table_info.getSchemaName(),
+        "schemaName": table_info.getSchemaName(),
         "tableType": table_info.getTableType().toString(),
     }
 
@@ -404,7 +413,9 @@ def test_catalog_managed_ctas_insert_and_deletion_vector_scan(unity_catalog_serv
                     (1L, 'one'), (2L, 'two'), (3L, 'three') AS source(id, value)
                 """).collect()
 
-        _assert_catalog_gpu_write(create_table, conf=conf)
+        _assert_catalog_gpu_write(
+            create_table, conf=conf,
+            expected_command="GpuAtomicCreateTableAsSelectExec")
         _assert_catalog_gpu_write(
             lambda spark: spark.sql(
                 f"INSERT INTO {table} VALUES (4L, 'four')").collect(),
@@ -420,7 +431,11 @@ def test_catalog_managed_ctas_insert_and_deletion_vector_scan(unity_catalog_serv
             lambda spark: spark.sql(f"DESCRIBE DETAIL {table}").first().asDict(),
             conf=conf)
         table_info = unity_catalog_server["tables_api"].getTable(table, None, None)
+        catalog_columns = _catalog_table_state(
+            unity_catalog_server["tables_api"], table)["columns"]
         catalog_properties = dict(table_info.getProperties())
+        assert [column["name"] for column in catalog_columns] == ["id", "value"]
+        assert [column["position"] for column in catalog_columns] == [0, 1]
         assert detail["location"].startswith("s3://test-bucket0/")
         assert catalog_properties[_CATALOG_MANAGED_PROPERTY] == "supported"
         assert catalog_properties[_UC_TABLE_ID_PROPERTY] == table_info.getTableId()
