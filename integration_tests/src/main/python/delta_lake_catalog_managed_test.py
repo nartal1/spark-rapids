@@ -177,8 +177,9 @@ def _assert_catalog_gpu_write(
         do_test, conf, expected_command=None, expected_classes=None):
     """Require catalog-managed writes to capture a real GPU Delta write plan."""
     return assert_rapids_delta_write(
-        do_test, conf=conf, require_non_empty=True, expected_command=expected_command,
-        expected_classes=expected_classes)
+        do_test, conf=conf, required_gpu_classes=["GpuRapidsDeltaWriteExec"],
+        forbidden_cpu_fallback_classes=["RapidsDeltaWriteExec"], require_non_empty=True,
+        expected_command=expected_command, expected_classes=expected_classes)
 
 
 def _assert_catalog_command_fallback(do_test, conf):

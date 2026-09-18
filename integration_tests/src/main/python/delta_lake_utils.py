@@ -58,7 +58,7 @@ if is_databricks173_or_later():
     # DBR 17.3 DV write/update paths can serialize Delta stats JSON on the CPU bridge.
     delta_meta_allow += ["StructsToJson", "CreateNamedStruct"]
 
-delta_write = ["GpuRapidsDeltaWriteExec"]
+delta_write = ["RapidsDeltaWrite"]
 
 
 def _loaded_delta_lake_version():
@@ -477,10 +477,8 @@ def assert_rapids_delta_write(
                     if found:
                         break
                 assert found, f"{cls} is not found in any captured plan"
-        fallback_classes = ["RapidsDeltaWriteExec"]
-        fallback_classes.extend(forbidden_cpu_fallback_classes or [])
         for plan in captured_plans:
-            for cls in fallback_classes:
+            for cls in forbidden_cpu_fallback_classes or []:
                 assert not callback.didFallBack(plan, cls), \
                     f"Captured Delta write plan fell back to CPU {cls}"
         return result
