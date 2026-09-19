@@ -39,6 +39,10 @@ object ParquetVariantShims {
     // No-op because PARQUET_ANNOTATE_VARIANT_LOGICAL_TYPE does not exist in Spark 4.0.x.
   }
 
+  // OSS Spark 4.0.x only pushes Variant extraction into V1 scans. Distributions that backport
+  // V2 pushdown can override this capability in their packaging-specific shim.
+  def supportsV2VariantPushdown: Boolean = false
+
   def isPushedVariantStruct(dataType: DataType): Boolean =
     VariantMetadata.isVariantStruct(dataType)
 

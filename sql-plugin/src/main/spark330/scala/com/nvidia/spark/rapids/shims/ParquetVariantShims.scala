@@ -58,6 +58,8 @@ object ParquetVariantShims {
     // PARQUET_ANNOTATE_VARIANT_LOGICAL_TYPE doesn't exist
   }
 
+  def supportsV2VariantPushdown: Boolean = false
+
   def isPushedVariantStruct(_dataType: DataType): Boolean = false
 
   def isPotentiallyShreddedVariant(_dataType: DataType, _sqlConf: SQLConf): Boolean = false
