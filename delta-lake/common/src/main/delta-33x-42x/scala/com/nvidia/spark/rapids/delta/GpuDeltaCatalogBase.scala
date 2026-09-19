@@ -479,6 +479,9 @@ abstract class GpuDeltaCatalogBase(
     }
   }
 
+  /** Applies version-specific normalization before staged properties are committed. */
+  protected def normalizeStagedTableProperties(props: util.Map[String, String]): Unit = {}
+
   override def tableExists(ident: Identifier): Boolean = cpuCatalog.tableExists(ident)
 
   protected def createGpuStagedDeltaTableV2(
@@ -516,6 +519,7 @@ abstract class GpuDeltaCatalogBase(
         writeOptions = sqlWriteOptions
       }
       expandTableProps(props, writeOptions, conf)
+      normalizeStagedTableProperties(props)
       createDeltaTable(
         ident,
         schema,

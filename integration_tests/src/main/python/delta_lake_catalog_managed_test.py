@@ -38,6 +38,7 @@ _CATALOG = "unity"
 _SCHEMA = "default"
 _CATALOG_MANAGED_PROPERTY = "delta.feature.catalogManaged"
 _UC_TABLE_ID_PROPERTY = "io.unitycatalog.tableId"
+_DEPRECATED_UC_TABLE_ID_PROPERTY = "ucTableId"
 _STATIC_TOKEN = "static-token"
 _COMMIT_COORDINATOR_PROPERTY = "delta.coordinatedCommits.commitCoordinator-preview"
 _COMMIT_COORDINATOR_CONF_PROPERTY = \
@@ -408,7 +409,9 @@ def test_catalog_managed_ctas_insert_and_deletion_vector_scan(unity_catalog_serv
             return spark.sql(f"""
                 CREATE TABLE {table}
                 USING DELTA
-                TBLPROPERTIES ('{_CATALOG_MANAGED_PROPERTY}' = 'supported')
+                TBLPROPERTIES (
+                    '{_CATALOG_MANAGED_PROPERTY}' = 'supported',
+                    '{_DEPRECATED_UC_TABLE_ID_PROPERTY}' = 'stale-caller-id')
                 AS SELECT /*+ COALESCE(1) */ * FROM VALUES
                     (1L, 'one'), (2L, 'two'), (3L, 'three') AS source(id, value)
                 """).collect()
@@ -440,6 +443,8 @@ def test_catalog_managed_ctas_insert_and_deletion_vector_scan(unity_catalog_serv
         assert catalog_properties[_CATALOG_MANAGED_PROPERTY] == "supported"
         assert catalog_properties[_UC_TABLE_ID_PROPERTY] == table_info.getTableId()
         assert detail["properties"][_UC_TABLE_ID_PROPERTY] == table_info.getTableId()
+        assert _DEPRECATED_UC_TABLE_ID_PROPERTY not in catalog_properties
+        assert _DEPRECATED_UC_TABLE_ID_PROPERTY not in detail["properties"]
         assert detail["id"] != table_info.getTableId()
         assert detail["properties"]["delta.enableDeletionVectors"] == "true"
         assert detail["properties"]["delta.enableRowTracking"] == "true"

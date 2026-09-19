@@ -26,6 +26,7 @@ import java.lang.reflect.{InvocationHandler, InvocationTargetException, Method, 
 import scala.util.control.NonFatal
 
 import com.nvidia.spark.rapids.RapidsConf
+import io.delta.storage.commit.uccommitcoordinator.UCCommitCoordinatorClient
 import org.apache.hadoop.fs.Path
 
 import org.apache.spark.sql.{DataFrame, SaveMode}
@@ -82,6 +83,16 @@ class GpuDeltaCatalog(
       fileSystemOptions: Map[String, String]): DeltaLog = {
     DeltaUtils.getDeltaLogFromTableOrPath(
       spark, existingTableOpt, tablePath, fileSystemOptions)
+  }
+
+  override protected def normalizeStagedTableProperties(
+      properties: java.util.Map[String, String]): Unit = {
+    if (isUnityCatalog) {
+      Option(properties.remove(UCCommitCoordinatorClient.UC_TABLE_ID_KEY_OLD)).foreach {
+        oldTableId =>
+          properties.putIfAbsent(UCCommitCoordinatorClient.UC_TABLE_ID_KEY, oldTableId)
+      }
+    }
   }
 
   override protected def createTableInCatalog(
