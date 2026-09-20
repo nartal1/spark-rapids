@@ -25,6 +25,9 @@ spark-rapids-shim-json-lines ***/
 
 package com.nvidia.spark.rapids.shims
 
+import scala.util.Try
+
+import com.nvidia.spark.rapids.ShimReflectionUtils
 import org.apache.hadoop.conf.Configuration
 
 import org.apache.spark.sql.execution.datasources.VariantMetadata
@@ -39,9 +42,15 @@ object ParquetVariantShims {
     // No-op because PARQUET_ANNOTATE_VARIANT_LOGICAL_TYPE does not exist in Spark 4.0.x.
   }
 
-  // OSS Spark 4.0.x only pushes Variant extraction into V1 scans. Distributions that backport
-  // V2 pushdown can override this capability in their packaging-specific shim.
-  def supportsV2VariantPushdown: Boolean = false
+  // OSS Spark 4.0.x only pushes Variant extraction into V1 scans. Detect distributions that
+  // backport V2 pushdown by checking whether their Parquet V2 scan builder implements the API.
+  def supportsV2VariantPushdown: Boolean = Try {
+    val pushdownInterface = ShimReflectionUtils.loadClass(
+      "org.apache.spark.sql.connector.read.SupportsPushDownVariantExtractions")
+    val parquetScanBuilder = ShimReflectionUtils.loadClass(
+      "org.apache.spark.sql.execution.datasources.v2.parquet.ParquetScanBuilder")
+    pushdownInterface.isAssignableFrom(parquetScanBuilder)
+  }.getOrElse(false)
 
   def isPushedVariantStruct(dataType: DataType): Boolean =
     VariantMetadata.isVariantStruct(dataType)
