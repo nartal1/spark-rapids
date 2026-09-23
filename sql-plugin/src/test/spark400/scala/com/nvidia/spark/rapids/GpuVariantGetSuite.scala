@@ -29,7 +29,7 @@
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids
 
-import java.util.{ArrayList, Arrays}
+import java.util.Arrays
 
 import ai.rapids.cudf.{ColumnVector, DType, HostColumnVector}
 import com.nvidia.spark.rapids.Arm.withResource
@@ -38,7 +38,6 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.apache.spark.sql.catalyst.expressions.{BoundReference, Literal}
 import org.apache.spark.sql.types.{BinaryType, BooleanType, ByteType, DataType, DateType,
   DoubleType, FloatType, IntegerType, LongType, ShortType, StringType, VariantType}
-import org.apache.spark.types.variant.VariantBuilder
 import org.apache.spark.unsafe.types.UTF8String
 
 class GpuVariantGetSuite extends AnyFunSuite {
@@ -75,22 +74,11 @@ class GpuVariantGetSuite extends AnyFunSuite {
     }
   }
 
-  private def makeExactScalarArray(): org.apache.spark.types.variant.Variant = {
-    val builder = new VariantBuilder(false)
-    val start = builder.getWritePos
-    val offsets = new ArrayList[Integer]()
-
-    def appendValue(append: => Unit): Unit = {
-      offsets.add(Integer.valueOf(builder.getWritePos - start))
-      append
-    }
-
-    appendValue(builder.appendBoolean(true))
-    appendValue(builder.appendFloat(1.25f))
-    appendValue(builder.appendDouble(-2.5))
-    builder.finishWritingArray(start, offsets)
-    builder.result()
-  }
+  // Spark Variant binary encoding for [true, 1.25f, -2.5d]. Keep this encoded because
+  // Databricks Spark 4.0 does not expose the OSS org.apache.spark.types.variant API.
+  private val exactScalarArrayValue = Array[Byte](
+    3, 3, 0, 1, 6, 15, 4, 56, 0, 0, -96, 63, 28, 0, 0, 0, 0, 0, 0, 4, -64)
+  private val emptyMetadata = Array[Byte](1, 0, 0)
 
   test("extracts Variant with mixed binary child representations") {
     assertMixedVariantExtraction(valueAsString = true, metadataAsString = false)
@@ -98,9 +86,8 @@ class GpuVariantGetSuite extends AnyFunSuite {
   }
 
   test("directly decodes exact Boolean, Float, and Double Variant values") {
-    val encoded = makeExactScalarArray()
-    withResource(makeBinaryColumn(encoded.getValue, asString = false)) { value =>
-      withResource(makeBinaryColumn(encoded.getMetadata, asString = false)) { metadata =>
+    withResource(makeBinaryColumn(exactScalarArrayValue, asString = false)) { value =>
+      withResource(makeBinaryColumn(emptyMetadata, asString = false)) { metadata =>
         withResource(ColumnVector.makeStruct(1, value, metadata)) { variant =>
           withResource(new GpuColumnVector(VariantType, variant.incRefCount())) { input =>
             def assertDecoded(path: String, dataType: DataType)(check: HostColumnVector => Unit)
