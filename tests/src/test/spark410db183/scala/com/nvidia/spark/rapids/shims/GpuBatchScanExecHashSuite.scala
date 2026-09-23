@@ -15,23 +15,13 @@
  */
 
 /*** spark-rapids-shim-json-lines
-{"spark": "350db143"}
-{"spark": "400"}
-{"spark": "400db173"}
-{"spark": "401"}
-{"spark": "402"}
-{"spark": "403"}
-{"spark": "404"}
-{"spark": "411"}
-{"spark": "412"}
-{"spark": "413"}
+{"spark": "410db183"}
 spark-rapids-shim-json-lines ***/
 package com.nvidia.spark.rapids.shims
 
 import com.nvidia.spark.rapids.{GpuScan, SparkQueryCompareTestSuite}
 
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.GenericInternalRow
+import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
 import org.apache.spark.sql.connector.metric.CustomMetric
 import org.apache.spark.sql.connector.read.{Batch, InputPartition, PartitionReaderFactory}
 import org.apache.spark.sql.types.StructType
@@ -56,40 +46,37 @@ class GpuBatchScanExecHashSuite extends SparkQueryCompareTestSuite {
     override def supportedCustomMetrics(): Array[CustomMetric] = Array(TestCustomMetric)
   }
 
-  private def exec(spjParams: StoragePartitionJoinShims.SpjParams): GpuBatchScanExec = {
+  private def exec(
+      keyGroupedPartitioning: Option[Seq[Expression]] = None,
+      dataFilters: Seq[Expression] = Nil): GpuBatchScanExec = {
     GpuBatchScanExec(
       output = Nil,
       scan = scan,
       table = null,
-      spjParams = spjParams)
+      keyGroupedPartitioning = keyGroupedPartitioning,
+      dataFilters = dataFilters)
   }
 
-  test("hashCode includes spjParams") {
-    val base = exec(StoragePartitionJoinShims.default())
+  test("hashCode includes key-grouped partitioning and data filters") {
+    val base = exec()
     assert(base.hashCode() !=
-      exec(StoragePartitionJoinShims.default().copy(replicatePartitions = true)).hashCode())
-    assert(base.hashCode() !=
-      exec(StoragePartitionJoinShims.default().copy(applyPartialClustering = true)).hashCode())
-    assert(base.hashCode() != exec(StoragePartitionJoinShims.default().copy(
-      commonPartitionValues = Some(Seq(
-        (new GenericInternalRow(Array[Any](7)).asInstanceOf[InternalRow], 2))))).hashCode())
+      exec(keyGroupedPartitioning = Some(Seq(Literal(1)))).hashCode())
+    assert(base.hashCode() != exec(dataFilters = Seq(Literal.TrueLiteral)).hashCode())
   }
 
   test("equal instances hash equally") {
-    def params = StoragePartitionJoinShims.default().copy(
-      commonPartitionValues = Some(Seq(
-        (new GenericInternalRow(Array[Any](7)).asInstanceOf[InternalRow], 2))),
-      applyPartialClustering = true,
-      replicatePartitions = true)
-    val a = exec(params)
-    val b = exec(params)
+    def plan = exec(
+      keyGroupedPartitioning = Some(Seq(Literal(1))),
+      dataFilters = Seq(Literal.TrueLiteral))
+    val a = plan
+    val b = plan
     assert(a == b)
     assert(a.hashCode() == b.hashCode())
   }
 
   test("task custom metrics use the accumulators exposed by the plan") {
     withCpuSparkSession { _ =>
-      val plan = exec(StoragePartitionJoinShims.default())
+      val plan = exec()
       assert(plan.scanCustomSQLMetrics(TestCustomMetric.name()) eq
         plan.metrics(TestCustomMetric.name()))
     }
