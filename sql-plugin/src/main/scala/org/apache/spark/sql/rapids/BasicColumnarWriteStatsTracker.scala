@@ -54,9 +54,10 @@ case class BasicColumnarWriteTaskStats(
  * `org.apache.spark.sql.execution.datasources.BasicWriteTaskStatsTracker`.
  */
 class BasicColumnarWriteTaskStatsTracker(
-    hadoopConf: Configuration,
+    private[rapids] val hadoopConf: Configuration,
     taskCommitTimeMetric: Option[GpuMetric])
     extends ColumnarWriteTaskStatsTracker with Logging {
+  private case class FileSizeResult(length: Option[Long], reusableStatusLength: Option[Long])
   private[this] val partitions: mutable.ArrayBuffer[InternalRow] = mutable.ArrayBuffer.empty
   private[this] var numFiles: Int = 0
   private[this] var numSubmittedFiles: Int = 0
@@ -71,7 +72,7 @@ class BasicColumnarWriteTaskStatsTracker(
    * @param filePath path to the file
    * @return the file size or None if the file was not found.
    */
-  private def getFileSize(filePath: String): Option[Long] = {
+  private def getFileSize(filePath: String): FileSizeResult = {
     val path = new Path(filePath)
     val fs = path.getFileSystem(hadoopConf)
     getFileSize(fs, path)
@@ -87,18 +88,18 @@ class BasicColumnarWriteTaskStatsTracker(
    * is returned instead of the length.
    * @return the file size or None if the file was not found.
    */
-  private def getFileSize(fs: FileSystem, path: Path): Option[Long] = {
+  private def getFileSize(fs: FileSystem, path: Path): FileSizeResult = {
     // the normal file status probe.
     try {
       val len = fs.getFileStatus(path).getLen
       if (len > 0) {
-        return Some(len)
+        return FileSizeResult(Some(len), Some(len))
       }
     } catch {
       case e: FileNotFoundException =>
         // may arise against eventually consistent object stores.
         logDebug(s"File $path is not yet visible", e)
-        return None
+        return FileSizeResult(None, None)
     }
 
     // Output File Size is 0. Look to see if it has an attribute
@@ -133,7 +134,9 @@ class BasicColumnarWriteTaskStatsTracker(
         // Something else. Log at debug and continue.
         logDebug(s"XAttr processing failure on $path", e);
     }
-    Some(len)
+    // A magic committer's XAttr may describe a future file length rather than the
+    // current file status. Preserve a separate lookup for another tracker in that case.
+    FileSizeResult(Some(len), None)
   }
 
   override def newPartition(partitionValues: InternalRow): Unit = {
@@ -146,12 +149,25 @@ class BasicColumnarWriteTaskStatsTracker(
   }
 
   override def closeFile(filePath: String): Unit = {
-    updateFileStats(filePath)
+    closeFileAndGetReusableStatusLength(filePath)
+  }
+
+  /** Return a positive, visible status length that another tracker may safely reuse. */
+  private[rapids] def closeFileAndGetReusableStatusLength(filePath: String): Option[Long] = {
+    val result = getFileSize(filePath)
+    updateFileStats(result.length)
+    submittedFiles.remove(filePath)
+    result.reusableStatusLength
+  }
+
+  private[rapids] def closeFileWithStatusLength(filePath: String, length: Long): Unit = {
+    require(length > 0)
+    updateFileStats(Some(length))
     submittedFiles.remove(filePath)
   }
 
-  private def updateFileStats(filePath: String): Unit = {
-    getFileSize(filePath).foreach { len =>
+  private def updateFileStats(length: Option[Long]): Unit = {
+    length.foreach { len =>
       numBytes += len
       numFiles += 1
     }

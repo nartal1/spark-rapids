@@ -28,6 +28,7 @@ import com.nvidia.spark.rapids.RapidsPluginImplicits._
 import com.nvidia.spark.rapids.RmmRapidsRetryIterator.withRetryNoSplit
 import com.nvidia.spark.rapids.fileio.hadoop.HadoopFileIO
 import com.nvidia.spark.rapids.shims.GpuFileFormatDataWriterShim
+import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileAlreadyExistsException, Path}
 import org.apache.hadoop.mapreduce.TaskAttemptContext
 
@@ -49,6 +50,30 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.SerializableConfiguration
 
 object GpuFileFormatDataWriter {
+  /** Share only a positive status length between adjacent metrics trackers with one FS scope. */
+  private[rapids] def closeFileStatsTrackers(
+      trackers: Seq[ColumnarWriteTaskStatsTracker], path: String): Unit = {
+    var reusableStatus: Option[(Configuration, Long)] = None
+    trackers.foreach {
+      case basic: BasicColumnarWriteTaskStatsTracker
+          if basic.getClass == classOf[BasicColumnarWriteTaskStatsTracker] =>
+        reusableStatus = basic.closeFileAndGetReusableStatusLength(path).map { length =>
+          (basic.hadoopConf, length)
+        }
+      case gpu: GpuWriteTaskStatsTracker =>
+        reusableStatus match {
+          case Some((conf, length)) if conf eq gpu.hadoopConf =>
+            gpu.closeFileWithStatusLength(path, length)
+          case _ =>
+            gpu.closeFile(path)
+        }
+        reusableStatus = None
+      case tracker =>
+        reusableStatus = None
+        tracker.closeFile(path)
+    }
+  }
+
   private def ceilingDiv(num: Long, divisor: Long) = {
     ((num + divisor - 1) / divisor).toInt
   }
@@ -141,7 +166,7 @@ abstract class GpuFileFormatDataWriter(
       if (writer != null) {
         try {
           writer.close()
-          statsTrackers.foreach(_.closeFile(writer.path()))
+          GpuFileFormatDataWriter.closeFileStatsTrackers(statsTrackers, writer.path())
         } finally {
           writer = null
         }
