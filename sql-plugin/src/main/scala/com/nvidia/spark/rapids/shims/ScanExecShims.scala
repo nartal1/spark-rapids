@@ -30,7 +30,7 @@ object ScanExecShims {
       case FileSourceMetadataAttribute(_) => true
       case _ => false
     }) {
-      if (!DeltaProvider().isDVScan(meta)) {
+      if (!DeltaProvider().isDVScan(meta) && !DeltaProvider().supportsFileMetadata(meta)) {
         meta.willNotWorkOnGpu("hidden metadata columns are not supported on GPU")
       }
     }

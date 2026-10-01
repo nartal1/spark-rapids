@@ -44,6 +44,7 @@ import org.apache.spark.sql.connector.read.{PartitionReader, PartitionReaderFact
 import org.apache.spark.sql.delta._
 import org.apache.spark.sql.delta.DeltaParquetFileFormat._
 import org.apache.spark.sql.delta.actions.{Metadata, Protocol}
+import org.apache.spark.sql.delta.deletionvectors.RapidsDeletionVectorStoredBitmap
 import org.apache.spark.sql.delta.schema.SchemaMergingUtils
 import org.apache.spark.sql.delta.sources.DeltaSQLConf
 import org.apache.spark.sql.execution.datasources.PartitionedFile
@@ -166,6 +167,22 @@ class GpuDeltaParquetFileFormatBase2(
       path: Path): Boolean = optimizationsEnabled
 
   def hasTablePath: Boolean = tablePath.isDefined
+
+  protected def generateRowIndexesWithoutDVs: Boolean = false
+
+  private def loadScanBitmap(fileIO: RapidsFileIO, descriptor: Option[String],
+      filterType: Option[RowIndexFilterType]): Option[HostMemoryBuffer] = {
+    tablePath.map(tp => RapidsDeletionVectors.loadDeletionVector(
+      fileIO, descriptor, filterType, tp)).orElse {
+      if (generateRowIndexesWithoutDVs) {
+        require(descriptor.isEmpty && filterType.isEmpty,
+          "A deletion vector requires its Delta table path")
+        Some(RapidsDeletionVectorStoredBitmap.serializedEmptyBitmap())
+      } else {
+        None
+      }
+    }
+  }
 
   private def computeNumRowsAliveWithDeletionVector(
       serializedBitmap: HostMemoryBuffer,
@@ -350,8 +367,7 @@ class GpuDeltaParquetFileFormatBase2(
             .get(FILE_ROW_INDEX_FILTER_ID_ENCODED).asInstanceOf[Option[String]]
           val filterTypeOpt = split.otherConstantMetadataColumnValues
             .get(FILE_ROW_INDEX_FILTER_TYPE).asInstanceOf[Option[RowIndexFilterType]]
-          val maybeSerializedDV = tablePath.map(tp =>
-            RapidsDeletionVectors.loadDeletionVector(fileIO, dvDescriptorOpt, filterTypeOpt, tp))
+          val maybeSerializedDV = loadScanBitmap(fileIO, dvDescriptorOpt, filterTypeOpt)
           closeOnExcept(maybeSerializedDV) { _ =>
             val (rowGroupOffsets, rowGroupNumRows) =
               RapidsDeletionVectors.getRowGroupMetadata(chunkedBlocks)
@@ -451,7 +467,7 @@ class GpuDeltaParquetFileFormatBase2(
       broadcastedConf,
       prepareSchema(fileScan.relation.dataSchema),
       prepareSchema(fileScan.requiredSchema),
-      prepareSchema(fileScan.readPartitionSchema),
+      prepareSchema(fileScan.readerPartitionSchema),
       prepareFiltersForRead(pushedFilters).toArray,
       fileScan.rapidsConf,
       poolConf,
@@ -721,7 +737,8 @@ class GpuDeltaParquetFileFormatBase2(
       }
       val colTypes = readDataSchema.fields.map(f => f.dataType)
 
-      val dvInfos: Array[SpillableDeletionVectorInfo] = if (hasTablePath) {
+      val dvInfos: Array[SpillableDeletionVectorInfo] =
+          if (hasTablePath || generateRowIndexesWithoutDVs) {
         val filteredDvInfos = dvMetadata.metadatas
           .filter(_.maybeDvInfo.isDefined)
           .map(_.maybeDvInfo.get)
@@ -752,7 +769,7 @@ class GpuDeltaParquetFileFormatBase2(
             // buffer is ready to not block CPU things.
             GpuSemaphore.acquireIfNecessary(TaskContext.get())
 
-            val tableReader = if (hasTablePath) {
+            val tableReader = if (hasTablePath || generateRowIndexesWithoutDVs) {
               // The MakeParquetTableWithDVProducer will close the input buffers
               MakeParquetTableWithDVProducer(
                 useChunkedReader,
@@ -890,8 +907,7 @@ class GpuDeltaParquetFileFormatBase2(
           .get(FILE_ROW_INDEX_FILTER_ID_ENCODED).asInstanceOf[Option[String]]
         val filterTypeOpt = partitionedFile.otherConstantMetadataColumnValues
           .get(FILE_ROW_INDEX_FILTER_TYPE).asInstanceOf[Option[RowIndexFilterType]]
-        val maybeSerializedDV = tablePath.map(tp =>
-          RapidsDeletionVectors.loadDeletionVector(fileIO, dvDescriptorOpt, filterTypeOpt, tp))
+        val maybeSerializedDV = loadScanBitmap(fileIO, dvDescriptorOpt, filterTypeOpt)
         (maybeSerializedDV, filterTypeOpt)
       } else {
         (None, None)
@@ -954,8 +970,7 @@ class GpuDeltaParquetFileFormatBase2(
         .get(FILE_ROW_INDEX_FILTER_ID_ENCODED).asInstanceOf[Option[String]]
       val filterTypeOpt = partitionedFile.otherConstantMetadataColumnValues
         .get(FILE_ROW_INDEX_FILTER_TYPE).asInstanceOf[Option[RowIndexFilterType]]
-      val maybeSerializedDV = tablePath.map(tp =>
-        RapidsDeletionVectors.loadDeletionVector(fileIO, dvDescriptorOpt, filterTypeOpt, tp))
+      val maybeSerializedDV = loadScanBitmap(fileIO, dvDescriptorOpt, filterTypeOpt)
       withResource(maybeSerializedDV) { _ =>
         val dvMetadataArray = memBuffersAndSize.map { singleHMBAndMeta =>
           val dataBlocks = singleHMBAndMeta.blockMeta
@@ -1269,19 +1284,22 @@ class GpuDeltaParquetFileFormatBase2(
      */
     override protected def prepareForDecode(meta: CurrentChunkMeta): CurrentChunkMeta = {
       val batchExtra = meta.extraInfo.asInstanceOf[DeltaBatchExtraInfo]
-      if (!batchExtra.hasDeletionVectors) return meta
-
-      val tp = tablePathOpt.getOrElse(
-        throw new IllegalStateException(
-          "tablePath must be set when deletion vectors are present"))
+      if (!batchExtra.hasDeletionVectors &&
+          GpuDeltaParquetFileFormatBase2.findGpuRowIndexColumn(meta.readSchema) < 0) return meta
 
       // Submit all DV load tasks concurrently before awaiting any result.
       val threadPool = MultiFileReaderThreadPool.getOrCreateThreadPool(poolConf)
       val loadFutures = batchExtra.perFileEntries.map { entry =>
         val loadTask = new FutureTask[SpillableHostBuffer](new Callable[SpillableHostBuffer] {
           override def call(): SpillableHostBuffer = {
-            val rawBitmap = RapidsDeletionVectors.loadDeletionVector(
-              fileIO, entry.dvDescriptor, entry.filterTypeOpt, tp)
+            val rawBitmap = tablePathOpt match {
+              case Some(tp) => RapidsDeletionVectors.loadDeletionVector(
+                fileIO, entry.dvDescriptor, entry.filterTypeOpt, tp)
+              case None =>
+                require(entry.dvDescriptor.isEmpty && entry.filterTypeOpt.isEmpty,
+                  "tablePath must be set when deletion vectors are present")
+                RapidsDeletionVectorStoredBitmap.serializedEmptyBitmap()
+            }
             // DeltaBatchExtraInfo.close() releases the SpillableHostBuffer when the decode
             // phase completes (via withRetryNoSplit in readBatchData).
             closeOnExcept(rawBitmap) { raw =>
@@ -1369,8 +1387,9 @@ class GpuDeltaParquetFileFormatBase2(
       val parseOpts = getParquetOptions(readDataSchema, clippedSchema, useFieldId)
       GpuSemaphore.acquireIfNecessary(TaskContext.get())
 
-      if (batchExtra.hasDeletionVectors) {
-        require(tablePathOpt.isDefined,
+      if (batchExtra.hasDeletionVectors ||
+          GpuDeltaParquetFileFormatBase2.findGpuRowIndexColumn(readDataSchema) >= 0) {
+        require(!batchExtra.hasDeletionVectors || tablePathOpt.isDefined,
           "tablePath must be set when a deletion vector descriptor is present")
         // loadedDVResults is parallel to perFileEntries: one bitmap per file in batch order.
         val dvInfos = batchExtra.loadedDVResults

@@ -41,7 +41,7 @@ import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 import org.apache.spark.sql.execution.metric.SQLMetrics
 import org.apache.spark.sql.execution.rapids.shims.FilePartitionShims
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{StructField, StructType}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.SerializableConfiguration
 import org.apache.spark.util.collection.BitSet
@@ -80,18 +80,25 @@ case class GpuFileSourceScanExec(
 
   import GpuMetric._
 
+  @transient private lazy val constantMetadataAttributes =
+    gpuFormat.constantMetadataAttributes(originalOutput)
+
   override val output: Seq[Attribute] = requiredPartitionSchema.map { requiredPartSchema =>
     // output attrs = data attrs ++ partition attrs
     val (dataOutAttrs, partOutAttrs) = originalOutput.splitAt(requiredSchema.length)
     val prunedPartOutAttrs = requiredPartSchema.map { f =>
       partOutAttrs(relation.partitionSchema.indexOf(f))
     }
-    dataOutAttrs ++ prunedPartOutAttrs
+    dataOutAttrs ++ prunedPartOutAttrs ++ constantMetadataAttributes
   }.getOrElse(originalOutput)
 
   val readPartitionSchema = requiredPartitionSchema.getOrElse(relation.partitionSchema)
 
-  @transient private val gpuFormat = relation.fileFormat match {
+  lazy val readerPartitionSchema = StructType(
+    readPartitionSchema.fields ++
+      constantMetadataAttributes.map(a => StructField(a.name, a.dataType, a.nullable, a.metadata)))
+
+  @transient private lazy val gpuFormat = relation.fileFormat match {
     case g: GpuReadFileFormatWithMetrics => g
     case f => throw new IllegalStateException(s"${f.getClass} is not a GPU format with metrics")
   }
@@ -339,7 +346,7 @@ case class GpuFileSourceScanExec(
         val reader = gpuFormat.buildReaderWithPartitionValuesAndMetrics(
           sparkSession = relation.sparkSession,
           dataSchema = relation.dataSchema,
-          partitionSchema = readPartitionSchema,
+          partitionSchema = readerPartitionSchema,
           requiredSchema = requiredSchema,
           filters = pushedDownFilters,
           options = relation.options,
@@ -591,8 +598,24 @@ case class GpuFileSourceScanExec(
       }
     }.getOrElse(partitions)
 
+    // Reuse the readers' constant-column machinery without changing file partitioning or AQE.
+    val metadataPartitions = if (constantMetadataAttributes.isEmpty) {
+      prunedPartitions
+    } else {
+      val partSchema = requiredPartitionSchema.getOrElse(relation.partitionSchema)
+      prunedPartitions.map { partition =>
+        val files = FilePartitionShims.getFiles(partition).map { file =>
+          val values = partSchema.fields.indices.map(i =>
+            file.partitionValues.get(i, partSchema(i).dataType)) ++
+            gpuFormat.constantMetadataValues(file, constantMetadataAttributes)
+          file.copy(partitionValues = InternalRow.fromSeq(values))
+        }
+        FilePartitionShims.copyWithFiles(partition, files)
+      }
+    }
+
     // Update the preferred locations based on the file cache locality
-    val locatedPartitions = prunedPartitions.map { partition =>
+    val locatedPartitions = metadataPartitions.map { partition =>
       val newFiles = FilePartitionShims.getFiles(partition).map { partFile =>
         val cacheLocations = FileCacheLocalityManager.get.getLocations(partFile.filePath.toString)
         if (cacheLocations.nonEmpty) {

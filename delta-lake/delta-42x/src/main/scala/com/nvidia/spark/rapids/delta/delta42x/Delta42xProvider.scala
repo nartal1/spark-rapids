@@ -45,6 +45,10 @@ import org.apache.spark.sql.execution.datasources.v2.rapids.{GpuAtomicCreateTabl
 
 object Delta42xProvider extends DeltaProviderBase with Logging {
 
+  override def supportsFileMetadata(
+      meta: SparkPlanMeta[org.apache.spark.sql.execution.FileSourceScanExec]): Boolean =
+    GpuRowTrackingParquetFileFormat.supports(meta)
+
   override protected def getCDFRelationStrategy = Delta42xCDFRelationStrategy
 
   override protected def getDeltaLogForV1Write(
@@ -176,7 +180,9 @@ object Delta42xProvider extends DeltaProviderBase with Logging {
   override protected def toGpuParquetFileFormat(conf: RapidsConf, fmt: DeltaParquetFileFormat)
   : FileFormat = {
     val needsGeneratedRowIndex = !fmt.optimizationsEnabled && !fmt.hasTablePath
-    if (isPushDVPredicateDownEnabled(conf) && !needsGeneratedRowIndex) {
+    if (GpuRowTrackingParquetFileFormat.eligible(fmt, conf)) {
+      new GpuRowTrackingParquetFileFormat(fmt)
+    } else if (isPushDVPredicateDownEnabled(conf) && !needsGeneratedRowIndex) {
       GpuDeltaParquetFileFormat2(
         protocol = fmt.protocol,
         metadata = fmt.metadata,

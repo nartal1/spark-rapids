@@ -25,6 +25,7 @@ import org.apache.hadoop.mapreduce.Job
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.read.PartitionReaderFactory
 import org.apache.spark.sql.execution.datasources.{FileFormat, OutputWriterFactory, PartitionedFile}
 import org.apache.spark.sql.rapids.GpuFileSourceScanExec
@@ -33,6 +34,15 @@ import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.SerializableConfiguration
 
 trait GpuReadFileFormatWithMetrics extends FileFormat {
+  // Opt-in contract for formats that can materialize per-file metadata as constant columns.
+  // Defaults preserve existing readers, including older Spark and Databricks shims.
+  def constantMetadataAttributes(output: Seq[Attribute]): Seq[Attribute] = Seq.empty
+
+  def constantMetadataValues(file: PartitionedFile, attributes: Seq[Attribute]): Seq[Any] = {
+    require(attributes.isEmpty, "This GPU reader does not support constant metadata")
+    Seq.empty
+  }
+
   final override def supportBatch(spark: SparkSession, dataSchema: StructType): Boolean = true
 
   final override def buildReaderWithPartitionValues(

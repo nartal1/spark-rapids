@@ -111,6 +111,8 @@ trait DeltaProvider {
   def pruneFileMetadata(plan: SparkPlan): SparkPlan = plan
 
   def isDVScan(meta: SparkPlanMeta[FileSourceScanExec]): Boolean = false
+
+  def supportsFileMetadata(meta: SparkPlanMeta[FileSourceScanExec]): Boolean = false
 }
 
 object DeltaProvider {
