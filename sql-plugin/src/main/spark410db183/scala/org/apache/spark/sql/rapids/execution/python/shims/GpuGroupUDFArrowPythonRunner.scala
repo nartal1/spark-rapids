@@ -18,8 +18,7 @@
  */
 
 /*** spark-rapids-shim-json-lines
-{"spark": "350db143"}
-{"spark": "400db173"}
+{"spark": "410db183"}
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.sql.rapids.execution.python.shims
 
@@ -62,6 +61,9 @@ class GpuGroupUDFArrowPythonRunner(
   extends GpuBasePythonRunner[ColumnarBatch](funcs.map(_._1), evalType, argOffsets,
     jobArtifactUUID) with GpuArrowPythonOutput with GpuPythonRunnerCommon {
 
+  // DBR 18.3 writes runner/eval configuration in BasePythonRunner before writeCommand.
+  override def runnerConf: Map[String, String] = super.runnerConf ++ conf
+
   protected override def newWriter(
       env: SparkEnv,
       worker: PythonWorker, // From DB341, changed from Socket to PythonWorker
@@ -78,7 +80,8 @@ class GpuGroupUDFArrowPythonRunner(
       }
 
       protected override def writeCommand(dataOut: DataOutputStream): Unit = {
-        arrowWriter.writeCommand(dataOut, conf)
+        WritePythonUDFUtils.writeUDFs(dataOut, funcs, argOffsets, argNames,
+          udfLogMaxEntries = udfLogMaxEntries, udfLogLevel = udfLogLevel)
       }
 
       override def writeNextInputToStream(dataOut: DataOutputStream): Boolean = {

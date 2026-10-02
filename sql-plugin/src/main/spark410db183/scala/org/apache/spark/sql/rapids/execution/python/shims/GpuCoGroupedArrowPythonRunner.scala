@@ -16,16 +16,7 @@
 
 
 /*** spark-rapids-shim-json-lines
-{"spark": "350db143"}
-{"spark": "400"}
-{"spark": "400db173"}
-{"spark": "401"}
-{"spark": "402"}
-{"spark": "403"}
-{"spark": "404"}
-{"spark": "411"}
-{"spark": "412"}
-{"spark": "413"}
+{"spark": "410db183"}
 spark-rapids-shim-json-lines ***/
 package org.apache.spark.sql.rapids.execution.python.shims
 
@@ -35,7 +26,7 @@ import com.nvidia.spark.rapids.Arm.withResource
 import com.nvidia.spark.rapids.GpuSemaphore
 
 import org.apache.spark.{SparkEnv, TaskContext}
-import org.apache.spark.api.python.{ChainedPythonFunctions, PythonRDD, PythonWorker}
+import org.apache.spark.api.python.{ChainedPythonFunctions, PythonWorker}
 import org.apache.spark.sql.rapids.execution.python.{GpuArrowWriter, GpuPythonRunnerCommon}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
@@ -62,6 +53,9 @@ class GpuCoGroupedArrowPythonRunner(
   extends GpuBasePythonRunner[(ColumnarBatch, ColumnarBatch)](funcs.map(_._1), evalType,
     argOffsets, jobArtifactUUID) with GpuArrowPythonOutput with GpuPythonRunnerCommon {
 
+  // DBR 18.3 writes runner/eval configuration in BasePythonRunner before writeCommand.
+  override def runnerConf: Map[String, String] = super.runnerConf ++ conf
+
   protected override def newWriter(
       env: SparkEnv,
       worker: PythonWorker,  // Changed from "Socket" to this "PythonWorker" from db341
@@ -71,12 +65,6 @@ class GpuCoGroupedArrowPythonRunner(
     new Writer(env, worker, inputIterator, partitionIndex, context) {
 
       protected override def writeCommand(dataOut: DataOutputStream): Unit = {
-        // Write config for the worker as a number of key -> value pairs of strings
-        dataOut.writeInt(conf.size)
-        for ((k, v) <- conf) {
-          PythonRDD.writeUTF(k, dataOut)
-          PythonRDD.writeUTF(v, dataOut)
-        }
         WritePythonUDFUtils.writeUDFs(dataOut, funcs, argOffsets,
           udfLogMaxEntries = udfLogMaxEntries, udfLogLevel = udfLogLevel)
       }
