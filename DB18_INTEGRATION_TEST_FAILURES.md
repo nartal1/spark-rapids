@@ -4,7 +4,7 @@ This is a cumulative checkpoint of the Databricks 18.3 integration run. It is re
 
 ## Snapshot
 
-- Snapshot time: 2026-10-02 22:30:42 UTC
+- Snapshot time: 2026-10-02 23:30:03 UTC
 - Runtime: Databricks 18.3, Spark 4.1.0, Java 21
 - Shim: `spark410db183`
 - Test type: `nightly`
@@ -14,7 +14,7 @@ This is a cumulative checkpoint of the Databricks 18.3 integration run. It is re
 - Current private DBR JAR SHA-256: `c6d1eac2a5d06562ea297cac7f0afe87c08f126695ccb218386bfc68f491c159`
 - Current public distribution JAR SHA-256: `0eb1240d995f877913e95f13638d04931c5fdd308fcd085e0ff7605f3721b1da`
 - Current public integration-test JAR SHA-256: `2d32ce7c4fb4288b8b8f5e2a2c070a218354b18d0e47e12b98fca54ac31bef29`
-- Current test state: integration coverage is complete, not all-green. The corrected public build passed all 20 modules and packaging, both scalar/aggregate gates passed, and full corrected-source `udf_test.py` reached exact 146-node JUnit/report coverage at 22:23:53 UTC: 97 passed, 36 failed, 4 skipped, 9 xfailed, zero errors/XPASS. Its pytest exit is 1; validation runner `79635` exited 0 because all coverage/evidence checks succeeded, not because every test passed. The new command-header regression suite compiled and passed both tests separately. The historical 39-failure UDF entry is now superseded exactly once. Cumulative counts are 110 logical phase/file invocations, 108 filenames, 32,803 outcomes, and 117 failures; old-artifact attempts and smoke gates are excluded.
+- Current test state: the original planned coverage and the requested default-configuration shuffle follow-up are terminal, not all-green. The corrected public build passed all 20 modules and packaging, both scalar/aggregate gates passed, and full corrected-source `udf_test.py` reached exact 146-node JUnit/report coverage at 22:23:53 UTC: 97 passed, 36 failed, 4 skipped, 9 xfailed, zero errors/XPASS. Its pytest exit is 1; validation runner `79635` exited 0 because all coverage/evidence checks succeeded, not because every test passed. The new command-header regression suite compiled and passed both tests separately. The historical 39-failure UDF entry is superseded exactly once. The supplemental default-shuffle run exited 0 at 23:29:30 UTC with 85 passed cases. Cumulative counts are 110 original logical phase/file entries plus one supplemental selection (111 counted phase/file selections), 108 filenames, 32,888 outcomes, and 117 failures; old-artifact attempts, the aborted audit launch, and smoke gates are excluded. Four nested helper cases remain unrun for literal `test.sh` parity; they were not requested in this follow-up.
 - Historical September build state: the DB18-only public build used `WITH_DEFAULT_UPSTREAM_SHIM=0`, `SKIP_DEP_INSTALL=1` and passed all 20 modules and packaging after its documented setup/packaging failures. Historical private/public distribution/public integration-test hashes were respectively `70f4b117e593073dd56e8af7e1d1758114f49c094b40650e277fb195901052de`, `8ca005680471fa9ad1175b214f4db27076a574a7b83345cd1bc91428ce0cf190`, and `6c3be5cb27e00d9fe678be1551019e14ba24b05e7a62afe01a987b33e190f444`; they are not the current rebuilt artifacts.
 - First-run state: complete; PID `569029` exited after the PyArrow phase.
 - First clean main/cache continuation state: three files completed under PID `874466`; its incomplete `arithmetic_ops_test.py` evidence is retained as diagnostic history but is superseded by the complete rerun below.
@@ -205,7 +205,7 @@ October 2 pre-fix recovery artifact SHA-256 values (the corrected-header public 
 - Private Git bundle SHA-256: `7e63e427db22ded9cb1a3318e4288ae3c49dfb8333f3b7afe9cf1e4bdec4032f`
 - Public test-head Git bundle SHA-256: `989b845c554bb056be7687e5b6e911c3a6240302aa416c75125266a03211e2d9`
 
-The phase table combines preserved September evidence with the completed October UDF replacement. Invalid/lost attempts are explicitly historical and excluded. The new exact 146-node replacement resolves the former 107-test coverage gap; no integration continuation is pending.
+The phase table combines preserved September evidence with the completed October UDF replacement and default-shuffle follow-up. Invalid/lost attempts are explicitly historical and excluded. The exact 146-node replacement resolves the former 107-test UDF gap. The requested 85-case follow-up also finished; the script-audit scope qualification below supersedes the earlier claim of full script parity.
 
 | Phase | Status | Evidence at this checkpoint |
 | --- | --- | --- |
@@ -222,20 +222,35 @@ The phase table combines preserved September evidence with the completed October
 | Clean cache continuation | Complete, passed | Separate `cache_test.py` invocation with the alternate cache serializer reached a terminal ledger row with exit 0; all 615 selected tests passed |
 | September targeted UDF rerun | Historical interrupted/lost evidence | PID `1304177` was lost with its cluster before terminal evidence; no outcomes counted |
 | October corrected-source UDF | Complete, failed | All 146 selected nodes reconciled: 97 passed, 36 failed, 4 skipped, 9 xfailed; both smoke gates passed separately and are excluded from cumulative counts |
+| Default-configuration shuffle supplement | Complete, passed | October 2, 23:24:20–23:29:30 UTC; exit 0; exact 85 selected/named JUnit cases and pytest call reports, all passed; default automatically installed RAPIDS shuffle with 20 reader/20 writer threads |
+
+## Script-coverage audit and default-shuffle follow-up
+
+The audit compared `jenkins/databricks/test.sh`, its wrapper/skip rules, the top-level file plan, and terminal report entries. All 108 top-level `*_test.py` files are represented. The original main continuation excluded `shuffle_test`; its 2,157-case `hash_aggregate_test.py` selection therefore did not cover the 85 marked cases in the main/default settings, even though the special multithreaded-shuffle phase had passed those cases with two reader/two writer threads. The user authorized only that 85-case completion run after the audit.
+
+Runner `106911` used the unchanged public base `cf54d1b4bd735ffc459ad865ea56d2562f8a1f92` plus the header fix committed locally as `1b7a902b314e4f17cc7e1ee1a04ac0bab5cf2f47`; all nine changed source/test file hashes, the test/wrapper/common-variable sources, and all three current artifact hashes were checked before and after execution. The command was `TESTS=hash_aggregate_test.py TEST_PARALLEL=0 TEST_TYPE=nightly bash integration_tests/run_pyspark_from_build.sh --runtime_env=databricks --test_type=nightly -m shuffle_test -p db18_default_shuffle_audit`. Datagen and OOM seeds were both `1790144460`, and UTC was retained. The audit plugin only recorded/validated evidence; it did not alter selection, test source, or Spark settings.
+
+No special-phase shuffle manager/mode/thread overrides were exported. On this Spark 4.1 runtime, the plugin automatically installs `com.nvidia.spark.rapids.spark410db183.RapidsShuffleManager`; `spark.rapids.shuffle.mode` was unset, with effective default `MULTITHREADED` and 20 reader/20 writer threads. Thus “default configuration” does not mean Spark's `SortShuffleManager` on this branch. Runtime metadata proves the distinct default thread settings, rather than simply repeating the earlier explicit two-thread phase.
+
+The corrected launch collected 2,242 items, deselected the other 2,157, and ran exactly 85 distinct marked nodes. It exited 0 at 23:29:30 UTC. The reconciler requires a normal pytest exit of 0 or 1, exact selected/JUnit/report node-set equality, and matching meaningful outcomes; all 85 named cases have passed call reports, with zero failures, errors, skips, XFAIL, or XPASS. Source/artifact postchecks passed. These 85 default-configuration outcomes are added once to the cumulative totals, not substituted for or double-counted within the earlier two-thread phase. The original 110 logical file/phase entries remain intact; this separately evidenced supplementary selection is the 111th counted selection, not a new filename.
+
+The first audit launch, PID `105643` in `/home/ubuntu/db18-default-shuffle-20261002`, exited 4 at 23:21:50 UTC before test execution because the audit incorrectly expected `SortShuffleManager`. This was an evidence-harness assertion, not a plugin/test failure. It contributed no outcomes. Only the audit check was corrected, and the successful rerun used the separate `-attempt2` directory; no test or production setting was weakened or changed.
+
+For literal default-script parity, four parameterized `iceberg/iceberg_test.py::test_is_spark_patch_at_least` helper cases remain unrun: unlike the actual Iceberg integration tests, these helpers lack the `iceberg` marker and are eligible on Spark 4.1. They were omitted by the original top-level-only plan and are outside the user's latest 85-case request. Actual Iceberg integration tests are skipped by the Databricks/default option rules, and cuDF-UDF tests require a separate opt-in. The upstream Spark two-shim smoke test was deliberately excluded by `WITH_DEFAULT_UPSTREAM_SHIM=0`; it remains excluded for DB18-only scope, not claimed as executed. Earlier report statements of completion refer to the original plan, not an untouched invocation of every default-script branch.
 
 ## Cumulative terminal outcome counts
 
-These counts include completed Delta, multithreaded-shuffle, PyArrow, clean-main, and alternate-cache coverage. The invalid initial main/cache collection attempts, superseded incomplete arithmetic attempt, and original 39-outcome incomplete UDF attempt are excluded. The complete corrected-source 146-case UDF replacement is counted once; smoke and unit tests are not included.
+These counts include completed Delta, multithreaded-shuffle, PyArrow, clean-main, alternate-cache, and supplemental default-shuffle coverage. The invalid initial main/cache collection attempts, superseded incomplete arithmetic attempt, original 39-outcome incomplete UDF attempt, and aborted default-shuffle audit launch are excluded. The complete corrected-source 146-case UDF replacement is counted once; smoke and unit tests are not included. The default supplement adds 85 passes to the prior 32,803 outcomes.
 
 | Outcome | Count |
 | --- | ---: |
-| Passed | 30,461 |
+| Passed | 30,546 |
 | Failed | 117 |
 | Error | 0 |
 | Skipped | 1,046 |
 | Expected failure (`XFAIL`) | 826 |
 | Unexpected pass (`XPASS`) | 353 |
-| Total observed | 32,803 |
+| Total observed | 32,888 |
 
 ## Delta Lake terminal outcome counts
 
@@ -351,6 +366,12 @@ Completed Delta-file count: **15**.
 | --- | --- |
 | `parquet_pyarrow_test.py` | 143 passed, 1 xpassed |
 
+## Completed default-configuration shuffle supplement
+
+| Python file | Observed outcomes |
+| --- | --- |
+| `hash_aggregate_test.py` | 85 passed under default 20-reader/20-writer-thread settings; separate from both the historical 2,157-case clean-main selection and explicit two-thread shuffle phase |
+
 ## Completed clean-main Python files
 
 | Python file | Observed outcomes |
@@ -458,7 +479,7 @@ Completed Delta-file count: **15**.
 
 - The main-file and alternate-cache runner completed its plan and wrote exit record `1` at 03:04:40 UTC because earlier test invocations failed. The separate alternate-cache invocation itself exited 0 after all 615 selected tests passed.
 - The separate full targeted `udf_test.py` rerun started at 03:11:57 UTC under PID `1304177` and was last confirmed alive at 03:12:16 UTC. It had established seed `1790565130` but had not yet emitted a visible collection summary.
-- The preceding two bullets describe September's completed runner and lost targeted attempt; those paths are historical and unavailable. The October 2 cluster is reachable; the header-fix build, scalar/aggregate gates, and two command-header unit tests passed. Validation runner `79635` is terminal with a complete 146-node replacement. No integration coverage remains pending, although 117 cumulative failed cases and the documented pre-existing global style findings remain unresolved.
+- The preceding two bullets describe September's completed runner and lost targeted attempt; those paths are historical and unavailable. The October 2 cluster is reachable; the header-fix build, scalar/aggregate gates, and two command-header unit tests passed. Validation runner `79635` is terminal with a complete 146-node replacement. The default-shuffle supplement under PID `106911` is also terminal with 85 passed cases. No execution remains active for the requested follow-up; four nested helper cases remain an explicit script-parity gap, and 117 cumulative failed cases and the documented pre-existing global style findings remain unresolved.
 
 ### Terminal corrected-source UDF window failures
 
@@ -656,9 +677,9 @@ All five cases received the expected illegal-sequence exception, but the asserti
 1. `datasourcev2_read_test.py::test_arrow_source_pandas_udf[DATAGEN_SEED=1790197601, TZ=UTC, ALLOW_NON_GPU(BatchScanExec)]`
    - Spark cancelled job 20 after the RAPIDS integration-test job reached its 3,600-second timeout. The two GPU Arrow Python tasks had stopped making metric progress and repeatedly logged 600-second worker-idle timeouts; the underlying cause remains undetermined.
 
-Completed phase/file invocation count across valid and clean phases: **110** (15 Delta Lake, 1 multithreaded shuffle, 1 PyArrow, 92 clean-main invocations, and 1 alternate-cache invocation). This represents **108 distinct Python filenames** because `hash_aggregate_test.py` completed two disjoint selections (85 shuffle-marked tests and 2,157 clean-main tests) and `cache_test.py` completed both clean-main and alternate-cache-serializer selections.
+Completed counted phase/file selections across valid and clean phases: **111** (the original 110 logical entries: 15 Delta Lake, 1 multithreaded shuffle, 1 PyArrow, 92 clean-main entries, and 1 alternate-cache entry; plus 1 supplemental default-shuffle selection). This represents **108 distinct Python filenames**. `hash_aggregate_test.py` has separate evidence for its 2,157-case historical main selection, 85-case explicit two-thread shuffle phase, and 85-case default-settings completion; the two 85-case runs cover different settings. `cache_test.py` completed both clean-main and alternate-cache-serializer selections. Diagnostic/superseded process attempts and smoke gates are not extra counted selections.
 
-Terminal pytest-failure count across all valid completed evidence: **117 of 32,803 outcomes** (30 Delta, 4 arithmetic, 2 AST, 5 collection-operations, 1 datasource-v2 read, 2 ORC, 1 private-optimizer, 1 regexp, 36 corrected-source UDF window-framing, and 35 variant failures; 0.36%).
+Terminal pytest-failure count across all valid completed evidence: **117 of 32,888 outcomes** (30 Delta, 4 arithmetic, 2 AST, 5 collection-operations, 1 datasource-v2 read, 2 ORC, 1 private-optimizer, 1 regexp, 36 corrected-source UDF window-framing, and 35 variant failures; 0.36%). The default-shuffle supplement added no failures.
 
 ## Harness and infrastructure observations
 
@@ -689,7 +710,7 @@ Terminal pytest-failure count across all valid completed evidence: **117 of 32,8
 
 ## Resume plan
 
-All planned integration coverage is terminal. If the cluster stops after this checkpoint, preserve this report; do not launch ordinary continuation or recreate completed phases merely to regain logs.
+The original plan and requested 85-case supplement are terminal. Preserve this report if the cluster stops; do not recreate completed phases merely to regain logs. Literal script parity still has four unrequested nested helper cases; the upstream smoke branch remains excluded for DB18-only scope.
 
 1. Do not rerun the fifteen completed Delta Python files for coverage continuation; the Delta phase is complete. Rerun its failed tests separately only for diagnosis or verification.
 2. Do not rerun the completed multithreaded-shuffle invocation of `hash_aggregate_test.py`; all 85 shuffle-selected tests passed. This is distinct from the completed 2,157-test clean-main invocation included in step 4.
@@ -697,14 +718,24 @@ All planned integration coverage is terminal. If the cluster stops after this ch
 4. Do not rerun the ninety-two terminal clean-main files for ordinary coverage continuation. The completed October 2 UDF replacement resolves the former 107-test gap; all 146 selected UDF cases have meaningful terminal outcomes.
 5. Do not rerun the separate alternate-serializer `cache_test.py` invocation; all 615 selected tests passed and reached a terminal ledger row. This invocation is distinct from the completed clean-main `cache_test.py` result.
 6. Retain the new terminal summaries/JUnit references and the immutable manifest captured before full-run completion. Do not restart runner `79635`, old isolated runner `39303`, or lost September runner `1304177`. Any future rerun should target explicit failure diagnosis/fix validation, not missing coverage. Source changes require new artifact identities; do not merge mixed-artifact partial results or double-count smoke tests.
+7. Do not rerun the completed default-settings shuffle supplement under PID `106911`; all 85 selected cases passed. Its first audit-only exit-4 attempt is excluded. Run the four nested helper cases separately only if the user requests closing that remaining script-parity gap.
 
 ## Completion and level-of-effort assessment
 
-All requested phases have terminal selected-test evidence, including the final UDF replacement. This means coverage complete, not release-ready: 117 cumulative cases failed, 1,046 were skipped, and 826 were expected failures. Historical non-UDF failures still need verification/triage under subsequent fixes; this narrowly scoped header fix did not rerun them or claim to repair them.
+All originally planned phases and the requested 85-case default-shuffle follow-up have terminal selected-test evidence, including the final UDF replacement. This does not claim full default-script parity: four nested helper cases remain unrun, and the upstream smoke branch is excluded from DB18-only scope. Nor is the branch release-ready: 117 cumulative cases failed, 1,046 were skipped, and 826 were expected failures. Historical non-UDF failures still need verification/triage under subsequent fixes; the narrowly scoped header fix did not rerun them or claim to repair them.
 
 The command-header defect was a localized four-runner shim change, validated by a 20-module build, two native-byte regression tests, CPU/GPU scalar and aggregate smoke comparisons, and full seeded UDF execution. Remaining UDF work is a separate window-stream framing family (36 failures across three test functions), not 36 independent fixes; the exact stream correction and its interaction with bounded/unbounded frames need investigation. Treat that as a medium-effort compatibility task requiring native writer/serializer comparison and targeted window checks before another full UDF validation. Variant failures form another substantial runtime-compatibility group; Delta, arithmetic/AST, collection operations, private optimizer, ORC, regex and datasource/UDF diagnostics should be triaged by their evidence-backed families. A reliable calendar estimate is not justified without that diagnosis. The three pre-existing global style findings remain an independent CI/review prerequisite; they were not silently disabled or absorbed into this source change.
 
 ## Evidence locations
+
+### Default-configuration shuffle supplement
+
+- Successful directory: `/home/ubuntu/db18-default-shuffle-20261002-attempt2`; runner `106911`, `runner.pid`, `runner.exit`, `status.tsv`, `launcher.log`, `test.log`, `reports.jsonl`, `runtime.json`, `selected-nodes.json`, and `summary.json`
+- Terminal JUnit: `/home/ubuntu/spark-rapids/scala2.13/integration_tests/target/run_dir-20261002232429-MLxJ/TEST-pytest-1790983469087189385.xml` (SHA-256 `a521aff137ad2628d824301e99b19206bbd0fe4eccb591381f538c03e70760de`)
+- Summary SHA-256: `9300cf9d32082918b33f0e39dbbc9e8fb33b81a0fdf175f462cfa5470ea430a5`; runtime SHA-256: `d008ce850ede3031e9c4fe4127c49af708c7bf9da449682803383d7100a0bbd8`; selected-nodes SHA-256: `9dbbf9825f6121b4d7816a70572b30a50958d106b14797a0a470192082a50791`
+- Launcher/audit/reconciler SHA-256: `c2832f63ba8e25a7d0c2612442661aa1535a0dfe382e075cb9c0bfe44ca25873`, `ddc031f27e0236034ef0b60848fb1f1d896ce616873ea95093261ff2ca937974`, `39c1bfdc2852ecba0e93462c50daa878485da9eba6075006d1448c0816cf6fe4`
+- Source/artifact check manifests: `expected-sources.sha256` (SHA-256 `8d2e14d02ecf811a60119bfea7c37b7674344120869c0e9f6a6450f2de4ae3e7`) and `expected-artifacts.sha256` (SHA-256 `cbef8629a216a56101e9e8fb1055da1d65db538a8395bbda1dd3cfc3aa5a6075`); both passed before and after execution
+- Aborted pre-test audit evidence: `/home/ubuntu/db18-default-shuffle-20261002`, PID `105643`, exit 4; not counted as test coverage or failure
 
 ### Current DB18 header-fix evidence
 
