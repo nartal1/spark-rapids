@@ -20,8 +20,8 @@ from pyspark.sql.types import ArrayType, BinaryType
 
 from asserts import (assert_cpu_and_gpu_are_equal_collect_with_capture,
                      assert_equal_with_local_sort, assert_gpu_and_cpu_are_equal_collect,
-                     assert_gpu_fallback_collect, assert_gpu_fallback_write)
-from conftest import is_iceberg_remote_catalog
+                     assert_gpu_fallback_collect, assert_gpu_fallback_write, collect_plan_nodes)
+from conftest import is_iceberg_remote_catalog, spark_jvm
 from data_gen import gen_df, copy_and_update, RepeatSeqGen
 from iceberg import (create_iceberg_table,
                      iceberg_base_table_cols,
@@ -146,9 +146,10 @@ def test_ctas_v3_fallback(spark_tmp_table_factory):
                "FileSourceScanExec", "BatchScanExec", "ColumnarToRowExec", "ProjectExec",
                "ShuffleExchangeExec", "SortExec", "VariantGet")
 def test_ctas_v3_variant_cpu_rows_convert_to_gpu(
-        spark_tmp_path, spark_tmp_table_factory):
+        spark_tmp_path, spark_tmp_table_factory, request):
     source_path = spark_tmp_path + "/SHREDDED_VARIANT_PARQUET"
     target_table = f"variant_test.default.{spark_tmp_table_factory.get()}"
+    extracted_table = f"variant_test.default.{spark_tmp_table_factory.get()}"
 
     def write_source(spark):
         base_df = spark.range(300).select(
@@ -181,6 +182,14 @@ def test_ctas_v3_variant_cpu_rows_convert_to_gpu(
         "spark.sql.catalog.variant_test.warehouse": spark_tmp_path + "/ICEBERG_WAREHOUSE",
     })
 
+    # The generic table fixture only cleans the default catalog. Clean this Hadoop
+    # catalog explicitly, including when a write or a plan assertion fails.
+    def drop_tables(spark):
+        for table in (extracted_table, target_table):
+            spark.sql(f"DROP TABLE IF EXISTS {table}")
+
+    request.addfinalizer(lambda: with_cpu_session(drop_tables, conf=conf))
+
     def create_table(spark):
         spark.sql(f"DROP TABLE IF EXISTS {target_table}")
         spark.sql(
@@ -191,12 +200,55 @@ def test_ctas_v3_variant_cpu_rows_convert_to_gpu(
 
     with_gpu_session(create_table, conf=conf)
 
+    def create_extracted_table(spark):
+        spark.sql(f"DROP TABLE IF EXISTS {extracted_table}")
+        callback = spark_jvm().org.apache.spark.sql.rapids.ExecutionPlanCaptureCallback
+        callback.startCapture()
+        try:
+            spark.sql(
+                f"CREATE TABLE {extracted_table} USING ICEBERG "
+                "PARTITIONED BY (truncate(10, partition_col)) "
+                f"TBLPROPERTIES ({props_sql}) "
+                "AS SELECT product_id, partition_col, "
+                "try_variant_get(variant_col, '$.id', 'bigint') AS variant_id, "
+                "try_variant_get(variant_col, '$.name', 'string') AS variant_name, "
+                "try_variant_get(variant_col, '$.active', 'boolean') AS variant_active "
+                f"FROM {target_table}")
+            plans = callback.getResultsWithTimeout(10000)
+        finally:
+            callback.endCapture()
+
+        # Check the CTAS execution itself, not just the subsequent table read. A fully
+        # CPU write would otherwise pass the result checks without exercising conversion.
+        transition_plans = [plan for plan in plans
+                            if callback.contains(plan, "BatchScanExec") and
+                            any(node.getClass().getSimpleName() == "GpuRowToColumnarExec" and
+                                any(field.dataType().typeName() == "variant"
+                                    for field in node.schema().fields())
+                                for node in collect_plan_nodes(callback.extractExecutedPlan(plan)))]
+        assert transition_plans, "Expected CPU Iceberg Variant rows converted to GPU in CTAS:\n{}" \
+            .format("\n".join(str(plan) for plan in plans))
+        for plan in plans:
+            callback.assertNotContain(plan, "HostColumnarToGpu")
+
+    # The raw Variant CTAS above intentionally stays on CPU for shredded input. Extract
+    # scalar outputs from the CPU Iceberg scan in a second CTAS to exercise conversion
+    # during the write itself, without the shredded Parquet CPU-prefix safeguard.
+    with_gpu_session(create_extracted_table, conf=conf)
+
     def read_result(spark):
-        return spark.sql(f"""SELECT product_id,
+        return spark.sql(f"""SELECT product_id, partition_col,
             variant_get(variant_col, '$.id', 'bigint') AS variant_id,
             variant_get(variant_col, '$.name', 'string') AS variant_name,
             variant_get(variant_col, '$.active', 'boolean') AS variant_active
             FROM {target_table}""")
+
+    def validate_extracted_table(spark):
+        expected = read_result(spark)
+        actual = spark.table(extracted_table).select(expected.columns)
+        assert_equal_with_local_sort(expected.collect(), actual.collect())
+
+    with_cpu_session(validate_extracted_table, conf=conf)
 
     assert_cpu_and_gpu_are_equal_collect_with_capture(
         read_result,
@@ -222,6 +274,7 @@ def test_ctas_v3_variant_cpu_rows_convert_to_gpu(
         expected_name = F.concat(F.lit("Product_"), F.col("product_id"))
         expected_active = F.col("product_id") % 2 == 0
         invalid = actual.where(
+            ~F.col("partition_col").eqNullSafe(F.col("product_id") % 100) |
             ~F.col("variant_id").eqNullSafe(F.col("product_id")) |
             ~F.col("variant_name").eqNullSafe(expected_name) |
             ~F.col("variant_active").eqNullSafe(expected_active))
