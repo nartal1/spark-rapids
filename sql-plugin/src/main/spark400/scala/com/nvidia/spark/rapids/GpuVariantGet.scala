@@ -37,6 +37,7 @@ import ai.rapids.cudf.{ColumnVector, ColumnView, DType, Scalar, VariantUtils}
 import com.nvidia.spark.Retryable
 import com.nvidia.spark.rapids.Arm.{closeOnExcept, withResource}
 import com.nvidia.spark.rapids.RapidsPluginImplicits._
+import com.nvidia.spark.rapids.jni.VariantParser
 
 import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, Literal,
   NamedExpression}
@@ -129,8 +130,15 @@ case class GpuVariantGet(
 
     withResource(variantStruct.getChildColumnView(0)) { value =>
       withResource(variantStruct.getChildColumnView(1)) { metadata =>
-        GpuVariantGet.withCudfVariantView(variantStruct, metadata, value) { cudfVariant =>
-          GpuVariantGet.extractVariantField(cudfVariant, path, dataType, input, fallbackBridge)
+        // Legacy Spark sorts logical UTF-16 keys before encoding lone surrogates as '?'.
+        // That replacement can make the encoded object unsorted even for ASCII lookup.
+        // Guard only '?' dictionary keys; valid Unicode alone is safe for our ASCII paths.
+        if (VariantParser.requiresLegacyMetadataFallback(metadata, variantStruct)) {
+          GpuVariantGet.evaluateOnCpu(input, fallbackBridge)
+        } else {
+          GpuVariantGet.withCudfVariantView(variantStruct, metadata, value) { cudfVariant =>
+            GpuVariantGet.extractVariantField(cudfVariant, path, dataType, input, fallbackBridge)
+          }
         }
       }
     }

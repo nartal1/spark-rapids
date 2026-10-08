@@ -33,7 +33,7 @@ import com.nvidia.spark.rapids._
 
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.KnownNotContainsNull
-import org.apache.spark.sql.catalyst.expressions.objects.Invoke
+import org.apache.spark.sql.catalyst.expressions.objects.{Invoke, StaticInvoke}
 import org.apache.spark.sql.catalyst.expressions.variant.VariantGet
 import org.apache.spark.sql.rapids.shims.InvokeExprMeta
 
@@ -43,6 +43,10 @@ import org.apache.spark.sql.rapids.shims.InvokeExprMeta
 trait Spark400PlusCommonShims extends Spark350PlusNonDBShims {
   override def getExprs: Map[Class[_ <: Expression], ExprRule[_ <: Expression]] = {
     val shimExprs: Map[Class[_ <: Expression], ExprRule[_ <: Expression]] = Seq(
+      GpuOverrides.expr[StaticInvoke](
+        "Calls a supported static function, including Spark JSON-to-VARIANT parsing",
+        StaticInvokeCheck,
+        GpuParseJsonStaticInvokeMeta),
       GpuOverrides.expr[KnownNotContainsNull](
         "Tags an array expression as known to not contain null elements (e.g. from array_compact).",
         ExprChecks.unaryProjectInputMatchesOutput(
