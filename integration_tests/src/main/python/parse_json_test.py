@@ -229,19 +229,74 @@ def test_parse_json_unicode_validation_masked_failure():
 
 
 @allow_non_gpu('RDDScanExec')
-@pytest.mark.parametrize('expression', [
-    "IF(id % 2 = 0, parse_json(json), parse_json(other))",
-    "CASE WHEN id % 2 = 0 THEN parse_json(json) ELSE parse_json(other) END",
-    "COALESCE(try_parse_json(json), parse_json(other))"])
-def test_parse_json_lazy_branch_evaluation(expression):
+def test_parse_json_native_if_lazy_branch_evaluation():
     def query(spark):
-        if expression.startswith('COALESCE'):
-            rows = [(0, '{"a":1}', '{'), (1, '{', '{"a":2}')]
-        else:
-            rows = [(0, '{"a":1}', '{'), (1, '{', '{"a":2}')]
+        rows = [(0, '{"a":1}', '{'), (1, '{', '{"a":2}')]
         return spark.createDataFrame(rows, 'id LONG, json STRING, other STRING').selectExpr(
-            'id', expression + ' AS v')
-    _assert_variant_bytes(query)
+            'id', 'IF(id % 2 = 0, parse_json(json), parse_json(other)) AS v')
+    _assert_variant_bytes(query, fallback=False)
+
+
+@pytest.mark.parametrize('expression', [
+    pytest.param("CASE WHEN id % 2 = 0 THEN parse_json(json) ELSE parse_json(other) END",
+        marks=allow_non_gpu('RDDScanExec', 'CaseWhen', 'EqualTo', 'Remainder', 'StaticInvoke')),
+    pytest.param("COALESCE(try_parse_json(json), parse_json(other))",
+        marks=allow_non_gpu('RDDScanExec', 'Coalesce', 'StaticInvoke'))])
+def test_parse_json_cpu_conditional_lazy_branch_evaluation(expression):
+    # A CPU conditional must retain its entire subtree. Turning the parser children into GPU
+    # bridge inputs evaluates both branches before Spark can skip the malformed one.
+    def query(spark):
+        rows = [(0, '{"a":1}', '{'), (1, '{', '{"a":2}')]
+        return spark.createDataFrame(rows, 'id LONG, json STRING, other STRING').coalesce(1)\
+            .selectExpr('id', expression + ' AS v')
+    _assert_variant_bytes(query, native=False, fallback=True)
+
+
+_scalar_coalesce = ("COALESCE(try_variant_get(try_parse_json(json), '$.a', 'bigint'), "
+                    "try_variant_get(parse_json(other), '$.a', 'bigint'))")
+
+
+@allow_non_gpu('RDDScanExec', 'Coalesce', 'VariantGet', 'StaticInvoke')
+@incompat
+def test_parse_json_scalar_coalesce_short_circuits():
+    # Unknown source schemas include SQL null, JSON null, missing fields and parse failures.
+    # A valid first extraction must not evaluate the strict parser in the second argument.
+    def query(spark):
+        rows = [(0, '{"a":1}', '{'), (1, None, '{"a":2}'),
+                (2, 'null', '{"a":3}'), (3, '{}', '{"a":4}'),
+                (4, '{', '{"a":5}'), (5, '{"a":6}', '{')]
+        return spark.createDataFrame(rows, 'id LONG, json STRING, other STRING').coalesce(1)\
+            .selectExpr('id', _scalar_coalesce + ' AS a').orderBy('id')
+    assert_cpu_and_gpu_are_equal_collect_with_capture(query, conf=_conf,
+        non_exist_classes='GpuParseJson,GpuVariantGet',
+        gpu_plan_assertion=lambda cpu_plan, gpu_plan: _assert_cpu_bridge(gpu_plan))
+
+
+@allow_non_gpu('RDDScanExec', 'Coalesce', 'VariantGet', 'StaticInvoke')
+@incompat
+def test_parse_json_scalar_coalesce_active_strict_error():
+    assert_gpu_and_cpu_error(
+        lambda spark: spark.createDataFrame([(0, '{}', '{'), (1, '{"a":1}', '{')],
+            'id LONG, json STRING, other STRING').coalesce(1)\
+            .selectExpr(_scalar_coalesce + ' AS a').collect(),
+        conf=_conf, error_message='MALFORMED_RECORD_IN_PARSING')
+
+
+@allow_non_gpu('RDDScanExec', 'Coalesce', 'CaseWhen', 'EqualTo', 'Remainder',
+               'VariantGet', 'StaticInvoke')
+@incompat
+def test_parse_json_scalar_coalesce_nested_conditional():
+    expression = ("COALESCE(try_variant_get(try_parse_json(json), '$.a', 'bigint'), "
+        "CASE WHEN id % 2 = 0 THEN try_variant_get(parse_json(other), '$.a', 'bigint') "
+        "ELSE 99L END)")
+    def query(spark):
+        rows = [(0, '{"a":1}', '{'), (1, '{}', '{'),
+                (2, None, '{"a":3}'), (3, 'null', '{')]
+        return spark.createDataFrame(rows, 'id LONG, json STRING, other STRING').coalesce(1)\
+            .selectExpr('id', expression + ' AS a').orderBy('id')
+    assert_cpu_and_gpu_are_equal_collect_with_capture(query, conf=_conf,
+        non_exist_classes='GpuParseJson,GpuVariantGet',
+        gpu_plan_assertion=lambda cpu_plan, gpu_plan: _assert_cpu_bridge(gpu_plan))
 
 
 @allow_non_gpu('RDDScanExec')
@@ -361,3 +416,7 @@ def test_parse_json_parquet_extract_filter_aggregate(spark_tmp_path):
 
 def _assert_no_cpu_bridge(plan):
     assert _cpu_bridge_time(plan) == 0, 'Expected the complete native pipeline without CPU replay'
+
+
+def _assert_cpu_bridge(plan):
+    assert _cpu_bridge_time(plan) > 0, 'Expected the complete conditional subtree on the CPU'

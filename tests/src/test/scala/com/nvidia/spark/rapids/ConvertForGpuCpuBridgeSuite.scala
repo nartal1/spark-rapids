@@ -19,9 +19,12 @@ package com.nvidia.spark.rapids
 import org.scalatest.funsuite.AnyFunSuite
 
 import org.apache.spark.sql.catalyst.expressions.{
-  Add, And, ArrayExists, ArrayFilter, AttributeReference, BoundReference, Divide, Expression,
-  GreaterThanOrEqual, LambdaFunction, LessThanOrEqual, Literal, Multiply, NamedLambdaVariable, Size}
+  Add, And, ArrayExists, ArrayFilter, AttributeReference, BoundReference, Cast, Divide, Expression,
+  GenericInternalRow, GreaterThan, GreaterThanOrEqual, LambdaFunction, LessThanOrEqual, Literal,
+  Multiply, NamedLambdaVariable, Or, Size}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+import org.apache.spark.unsafe.types.UTF8String
 
 /**
  * Unit tests for the convertForGpuCpuBridge() method in BaseExprMeta.
@@ -149,6 +152,50 @@ class ConvertForGpuCpuBridgeSuite extends AnyFunSuite {
   // ============================================================================
   // Literal Handling Tests - Critical for the review concern
   // ============================================================================
+
+  Seq("AND", "OR").foreach { operation =>
+    test(s"convertForGpuCpuBridge - CPU $operation keeps inactive throwing subtree lazy") {
+      val sqlConf = new SQLConf
+      sqlConf.setConfString("spark.sql.ansi.enabled", "true")
+      SQLConf.withExistingConf(sqlConf) {
+        val flag = AttributeReference("flag", BooleanType, nullable = false)()
+        val raw = AttributeReference("raw", StringType, nullable = false)()
+        val throwingPredicate = GreaterThan(Cast(raw, IntegerType), Literal(0))
+        val expression = if (operation == "AND") {
+          And(flag, throwingPredicate)
+        } else {
+          Or(flag, throwingPredicate)
+        }
+        val meta = createExprMeta(expression)
+        meta.moveToCpuBridge()
+        val bridge = meta.convertForGpuCpuBridge().asInstanceOf[GpuCpuBridgeExpression]
+
+        // Computing the cast/predicate as GPU bridge inputs would throw before AND/OR can
+        // short-circuit. Only capture the raw attributes; keep the CPU predicate intact.
+        assert(bridge.gpuInputs.length == 2)
+        assert(bridge.gpuInputs.forall(_.isInstanceOf[AttributeReference]))
+        assert(bridge.gpuInputs.exists(_.semanticEquals(flag)))
+        assert(bridge.gpuInputs.exists(_.semanticEquals(raw)))
+        assert(bridge.cpuExpression.exists(_.isInstanceOf[Cast]))
+        assert(!bridge.cpuExpression.exists(_.isInstanceOf[AttributeReference]))
+
+        def inputRow(flagValue: Boolean): GenericInternalRow = {
+          val values = bridge.gpuInputs.map {
+            case attribute if attribute.semanticEquals(flag) => flagValue
+            case attribute if attribute.semanticEquals(raw) => UTF8String.fromString("bad-text")
+            case unexpected => fail(s"Unexpected bridge input: $unexpected")
+          }.toArray[Any]
+          new GenericInternalRow(values)
+        }
+        val inactiveFlag = operation == "OR"
+        assert(bridge.cpuExpression.eval(inputRow(inactiveFlag)) == inactiveFlag)
+        val error = intercept[Exception] {
+          bridge.cpuExpression.eval(inputRow(!inactiveFlag))
+        }
+        assert(error.getMessage.contains("CAST_INVALID_INPUT"))
+      }
+    }
+  }
 
   test("convertForGpuCpuBridge - mixed GPU inputs and literals") {
     // CPU expression: col + 10

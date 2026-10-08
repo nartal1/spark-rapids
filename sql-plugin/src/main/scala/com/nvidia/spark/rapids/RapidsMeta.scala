@@ -1590,10 +1590,16 @@ abstract class BaseExprMeta[INPUT <: Expression](
    * - Literals and ScalarSubqueries to avoid unnecessary data movement
    * - LambdaFunctions because they contain unevaluable placeholders (NamedLambdaVariables)
    *   that cannot be evaluated in columnar fashion on the GPU
+   * Conditional CPU expressions must also retain their children on the CPU: lifting a branch
+   * into a GPU input eagerly evaluates it before the CPU can apply its short-circuit semantics.
+   * Captured attributes are bound below without evaluating the inactive branch expressions.
    */
   private def shouldConvertChildToGpuInput(childMeta: BaseExprMeta[_]): Boolean = {
-    import org.apache.spark.sql.catalyst.expressions.LambdaFunction
-    childMeta.canThisBeReplaced &&
+    import org.apache.spark.sql.catalyst.expressions.{
+      And, ConditionalExpression => CPUConditionalExpression, LambdaFunction, Or}
+    val cpuShortCircuits = wrapped.isInstanceOf[CPUConditionalExpression] ||
+      wrapped.isInstanceOf[And] || wrapped.isInstanceOf[Or]
+    !cpuShortCircuits && childMeta.canThisBeReplaced &&
       !childMeta.wrapped.isInstanceOf[Literal] &&
       !childMeta.wrapped.isInstanceOf[ScalarSubquery] &&
       !childMeta.wrapped.isInstanceOf[LambdaFunction]

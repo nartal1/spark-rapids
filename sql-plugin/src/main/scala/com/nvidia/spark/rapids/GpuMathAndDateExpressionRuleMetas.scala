@@ -480,6 +480,22 @@ case class CoalesceRuleMeta(
   // Allow foldable non-literal Coalesce (e.g. coalesce(cast(null as bigint), -1001)):
   // AQE can regenerate these after ConstantFolding ran; GpuCoalesce evaluates them on GPU.
   override val isFoldableNonLitAllowed: Boolean = true
+
+  override def tagExprForGpu(): Unit = {
+    import org.apache.spark.sql.catalyst.expressions.objects.StaticInvoke
+    val containsVariantParser = a.exists {
+      case invoke: StaticInvoke => invoke.functionName == "parseJson" &&
+        invoke.staticObject.getName.stripSuffix("$") ==
+          "org.apache.spark.sql.catalyst.expressions.variant.VariantExpressionEvalUtils"
+      case _ => false
+    }
+    // GpuCoalesce evaluates its children eagerly in reverse order. Even a scalar extraction
+    // around parse_json can throw on an inactive child, so retain the original CPU subtree.
+    if (containsVariantParser) {
+      willNotWorkOnGpu("COALESCE containing parse_json requires CPU short-circuit evaluation")
+    }
+  }
+
   override def convertToGpuImpl(): GpuExpression =
     GpuCoalesce(childExprs.map(_.convertToGpu()))
 }
