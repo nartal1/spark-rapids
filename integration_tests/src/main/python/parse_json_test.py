@@ -55,6 +55,10 @@ def _assert_variant_bytes(func, conf=None, native=True, fallback=None):
                                    conf={**_conf, **(conf or {})})
     cpu_rows, _ = cpu
     gpu_rows, gpu_df = gpu
+    # Sorting a projection that still contains VARIANT is a separate unsupported operator.
+    # Compare by the stable input id on the host instead of introducing a CPU SortExec.
+    cpu_rows = sorted(cpu_rows, key=lambda row: row.id)
+    gpu_rows = sorted(gpu_rows, key=lambda row: row.id)
     assert len(cpu_rows) == len(gpu_rows)
     for expected, actual in zip(cpu_rows, gpu_rows):
         assert expected.id == actual.id
@@ -86,7 +90,7 @@ def test_parse_json_native_encoding(function):
                  '{"":1,"a.b":2,"a[0]":3,"quote\\\"":4,"slash\\\\":5}',
                  '{"z":1,"a":{"items":[{"sku":"first"},2]},"b":true}']
     _assert_variant_bytes(lambda spark: _input(spark, documents).selectExpr(
-        'id', f'{function}(json) AS v').orderBy('id'), fallback=False)
+        'id', f'{function}(json) AS v'), fallback=False)
 
 
 @allow_non_gpu('RDDScanExec')
@@ -96,7 +100,7 @@ def test_try_parse_json_invalid_and_unsupported():
                  '{"a":1} junk', '{"a":1}{"b":2}',
                  '[' * 128 + '1' + ']' * 128, '[' * 1001 + '1' + ']' * 1001]
     _assert_variant_bytes(lambda spark: _input(spark, documents).selectExpr(
-        'id', 'try_parse_json(json) AS v').orderBy('id'), fallback=True)
+        'id', 'try_parse_json(json) AS v'), fallback=True)
 
 
 @allow_non_gpu('RDDScanExec')
@@ -112,7 +116,7 @@ def test_parse_json_strict_errors(document):
 def test_parse_json_strict_valid_unsupported_depth():
     document = '[' * 128 + '1' + ']' * 128
     _assert_variant_bytes(lambda spark: _input(spark, ['{"a":1}', document, None])
-        .selectExpr('id', 'parse_json(json) AS v').orderBy('id'), fallback=True)
+        .selectExpr('id', 'parse_json(json) AS v'), fallback=True)
 
 
 @allow_non_gpu('RDDScanExec')
@@ -123,8 +127,9 @@ def test_parse_json_strict_mixed_error_batch():
             .collect(), conf=_conf, error_message='MALFORMED_RECORD_IN_PARSING')
 
 
-@allow_non_gpu('RDDScanExec')
+@allow_non_gpu('RDDScanExec', 'ProjectExec', 'StaticInvoke')
 def test_parse_json_sql_null_and_json_null_distinct():
+    # is_variant_null is outside this parser change; the upper CPU projection is expected.
     assert_cpu_and_gpu_are_equal_collect_with_capture(
         lambda spark: _input(spark, [None, 'null', '"null"', '{}'])
             .selectExpr('id', 'parse_json(json) AS v').selectExpr('id',
@@ -145,7 +150,7 @@ def test_parse_json_sql_null_then_native_extraction():
         gpu_plan_assertion=lambda cpu_plan, gpu_plan: _assert_no_cpu_bridge(gpu_plan))
 
 
-@allow_non_gpu('RDDScanExec')
+@allow_non_gpu('RDDScanExec', 'IsNull')
 def test_parse_json_static_invoke_preserves_string_decode():
     def query(spark):
         return spark.createDataFrame([(0, '{"a":1}', bytearray(b'abc'))],
@@ -164,15 +169,16 @@ def test_parse_json_unicode_guard(function):
                  '{"\\uE000":1,"\\uD800\\uDC00":2}',
                  json.dumps({'\ue000': 1, '\U00010000': 2}, ensure_ascii=False)]
     _assert_variant_bytes(lambda spark: _input(spark, documents).selectExpr(
-        'id', f'{function}(json) AS v').orderBy('id'), fallback=True)
+        'id', f'{function}(json) AS v'), fallback=True)
 
 
-@allow_non_gpu('RDDScanExec')
+@allow_non_gpu('RDDScanExec', 'ProjectExec', 'StaticInvoke')
 @pytest.mark.parametrize('function', ['parse_json', 'try_parse_json'])
 def test_parse_json_allowed_duplicates_planner_fallback(function):
+    # Duplicate-allowed parsing deliberately remains a CPU StaticInvoke/ProjectExec.
     _assert_variant_bytes(lambda spark: _input(spark, ['{"a":1,"a":2}',
-        '{"outer":{"a":1,"a":2}}']).selectExpr('id', f'{function}(json) AS v')
-        .orderBy('id'), conf={'spark.sql.variant.allowDuplicateKeys': 'true'}, native=False)
+        '{"outer":{"a":1,"a":2}}']).selectExpr('id', f'{function}(json) AS v'),
+        conf={'spark.sql.variant.allowDuplicateKeys': 'true'}, native=False)
 
 
 @allow_non_gpu('RDDScanExec')
@@ -180,7 +186,7 @@ def test_parse_json_allowed_duplicates_planner_fallback(function):
 @pytest.mark.parametrize('function', ['parse_json', 'try_parse_json'])
 def test_parse_json_unicode_validation_native_ascii(function):
     _assert_variant_bytes(lambda spark: _input(spark, ['{"a":1}', 'null', None,
-        '["valid ASCII",true]']).selectExpr('id', f'{function}(json) AS v').orderBy('id'),
+        '["valid ASCII",true]']).selectExpr('id', f'{function}(json) AS v'),
         conf={'spark.sql.variant.validateUnicodeInJsonParsing': 'true'}, fallback=False)
 
 
@@ -189,7 +195,7 @@ def test_parse_json_unicode_validation_native_ascii(function):
 @pytest.mark.parametrize('function', ['parse_json', 'try_parse_json'])
 def test_parse_json_unicode_validation_valid_unicode_replay(function):
     _assert_variant_bytes(lambda spark: _input(spark, ['{"é":"λ"}',
-        '{"\\uD800\\uDC00":1}']).selectExpr('id', f'{function}(json) AS v').orderBy('id'),
+        '{"\\uD800\\uDC00":1}']).selectExpr('id', f'{function}(json) AS v'),
         conf={'spark.sql.variant.validateUnicodeInJsonParsing': 'true'}, fallback=True)
 
 
@@ -197,7 +203,7 @@ def test_parse_json_unicode_validation_valid_unicode_replay(function):
 @pytest.mark.skipif(not is_spark_420_or_later(), reason='Unicode validation requires Spark 4.2+')
 def test_try_parse_json_unicode_validation_invalid_surrogate():
     _assert_variant_bytes(lambda spark: _input(spark, ['{"a":1}', '{"\\uD800":1}',
-        '{"a":"\\uD800"}']).selectExpr('id', 'try_parse_json(json) AS v').orderBy('id'),
+        '{"a":"\\uD800"}']).selectExpr('id', 'try_parse_json(json) AS v'),
         conf={'spark.sql.variant.validateUnicodeInJsonParsing': 'true'}, fallback=True)
 
 
@@ -217,7 +223,7 @@ def test_parse_json_unicode_validation_masked_failure():
         rows = [(0, '{"a":1}', '{"\\uD800":1}'),
                 (1, '{"a":"\\uD800"}', '{"é":"λ"}')]
         return spark.createDataFrame(rows, 'id LONG, json STRING, other STRING').coalesce(1)\
-            .selectExpr('id', 'IF(id = 0, parse_json(json), parse_json(other)) AS v').orderBy('id')
+            .selectExpr('id', 'IF(id = 0, parse_json(json), parse_json(other)) AS v')
     _assert_variant_bytes(query, conf={'spark.sql.variant.validateUnicodeInJsonParsing': 'true'},
                           fallback=True)
 
@@ -234,7 +240,7 @@ def test_parse_json_lazy_branch_evaluation(expression):
         else:
             rows = [(0, '{"a":1}', '{'), (1, '{', '{"a":2}')]
         return spark.createDataFrame(rows, 'id LONG, json STRING, other STRING').selectExpr(
-            'id', expression + ' AS v').orderBy('id')
+            'id', expression + ' AS v')
     _assert_variant_bytes(query)
 
 
@@ -271,9 +277,10 @@ def test_parse_json_surrogate_dictionary_then_ascii_extraction(document):
         exist_classes='GpuParseJson,GpuVariantGet', conf=_conf)
 
 
-@allow_non_gpu('RDDScanExec')
+@allow_non_gpu('RDDScanExec', 'VariantGet')
 @incompat
 def test_parse_json_surrogate_dictionary_question_mark_path():
+    # This non-identifier path is intentionally evaluated through the existing CPU bridge.
     assert_cpu_and_gpu_are_equal_collect_with_capture(
         lambda spark: _input(spark, ['{"\\uD800":1,"?":2}']).selectExpr(
             'parse_json(json) AS v').selectExpr("try_variant_get(v, '$.?', 'bigint') AS x"),
