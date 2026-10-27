@@ -58,7 +58,7 @@ import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.nvidia.DFUDFShims
-import org.apache.spark.sql.types.{DataTypes, LongType, StringType, StructField, StructType}
+import org.apache.spark.sql.types.{DataTypes, LongType, NullType, StringType, StructField, StructType}
 
 case class GpuMergeDataSizes(
     @JsonDeserialize(contentAs = classOf[java.lang.Long])
@@ -946,7 +946,15 @@ case class GpuMergeIntoCommand(
         incrMetricExpr: Expression): Seq[Seq[Expression]] = {
       // Generate update expressions and set ROW_DELETED_COL = false and
       // CDC_TYPE_COLUMN_NAME = CDC_TYPE_NOT_CDC
-      val mainDataOutput = updateExprs :+ FalseLiteral :+ incrMetricExpr :+
+      // Schema evolution gives a column that the clause does not set an untyped NULL. The GPU
+      // processor concatenates this output with outputs that carry the column's real type, so
+      // the NULL is typed with the target column's type.
+      val typedUpdateExprs = updateExprs.zip(outputRowSchema.fields).map {
+        case (l: Literal, field) if l.value == null && l.dataType == NullType =>
+          Literal(null, field.dataType)
+        case (e, _) => e
+      } ++ updateExprs.drop(outputRowSchema.fields.length)
+      val mainDataOutput = typedUpdateExprs :+ FalseLiteral :+ incrMetricExpr :+
           CDC_TYPE_NOT_CDC_LITERAL
       val exprs = if (cdcEnabled) {
         // For update preimage, we have do a no-op copy with ROW_DELETED_COL = false and
