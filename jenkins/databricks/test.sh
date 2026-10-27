@@ -116,25 +116,6 @@ fi
 IS_SPARK_321_OR_LATER=0
 [[ "$(printf '%s\n' "3.2.1" "$BASE_SPARK_VERSION" | sort -V | head -n1)" = "3.2.1" ]] && IS_SPARK_321_OR_LATER=1
 
-# Apply the CI scope to every native product-test invocation, including specialized modes.
-run_native_tests() {
-    local marker=$1
-    shift
-    if [[ "$DBR183_NON_DELTA_CI" == "1" ]]; then
-        if [[ -n "$marker" ]]; then
-            marker="($marker) and not delta_lake"
-        else
-            marker="not delta_lake"
-        fi
-    fi
-    local -a marker_args=()
-    if [[ -n "$marker" ]]; then
-        marker_args=(-m "$marker")
-    fi
-    bash integration_tests/run_pyspark_from_build.sh --runtime_env="databricks" \
-        --test_type="$TEST_TYPE" "${marker_args[@]}" "$@"
-}
-
 # Classloader config is here to work around classloader issues with
 # --packages in distributed setups, should be fixed by
 # https://github.com/NVIDIA/spark-rapids/pull/5646
@@ -148,12 +129,12 @@ rapids_shuffle_smoke_test() {
     PYSP_TEST_spark_rapids_shuffle_multiThreaded_reader_threads=2 \
     PYSP_TEST_spark_shuffle_manager=com.nvidia.spark.rapids.$SPARK_SHIM_VER.RapidsShuffleManager \
     SPARK_SUBMIT_FLAGS="$SPARK_CONF" \
-    run_native_tests shuffle_test
+    bash integration_tests/run_pyspark_from_build.sh -m shuffle_test --runtime_env="databricks" --test_type=$TEST_TYPE
 }
 
 run_pyarrow_tests() {
     SPARK_SUBMIT_FLAGS="$SPARK_CONF" \
-        run_native_tests pyarrow_test --pyarrow_test
+        bash integration_tests/run_pyspark_from_build.sh -m pyarrow_test --pyarrow_test --runtime_env="databricks" --test_type=$TEST_TYPE
 }
 
 # Move selected tests to CI_PART2 so the split CI jobs finish closer together.
@@ -228,9 +209,10 @@ if [[ $TEST_MODE == "DEFAULT" || $TEST_MODE == "CI_PART1" ]]; then
             bash integration_tests/run_pyspark_from_build.sh
     fi
     if [[ "$TEST_MODE" == "CI_PART1" ]]; then
-        run_native_tests "" -k "not ($CI_PART2_BALANCED_TEST_EXPR)"
+        bash integration_tests/run_pyspark_from_build.sh --runtime_env="databricks" \
+            --test_type=$TEST_TYPE -k "not ($CI_PART2_BALANCED_TEST_EXPR)"
     else
-        run_native_tests ""
+        bash integration_tests/run_pyspark_from_build.sh --runtime_env="databricks" --test_type=$TEST_TYPE
     fi
 fi
 
@@ -239,13 +221,14 @@ if [[ "$(pwd)" == "$SOURCE_PATH" ]]; then
     if [[ "$TEST_MODE" == "CI_PART2" ]]; then
         ## Run the balanced integration tests moved out of CI_PART1
         TESTS="${CI_PART2_BALANCED_TESTS// /.py }.py" \
-            run_native_tests ""
+            bash integration_tests/run_pyspark_from_build.sh --runtime_env="databricks" \
+                --test_type=$TEST_TYPE
     fi
 
     ## Run cache tests
     if [[ "$IS_SPARK_321_OR_LATER" -eq "1" && ("$TEST_MODE" == "DEFAULT" || $TEST_MODE == "CI_PART2") ]]; then
         PYSP_TEST_spark_sql_cache_serializer=${PCBS_CONF} \
-            run_native_tests "" -k cache_test
+            bash integration_tests/run_pyspark_from_build.sh --runtime_env="databricks" --test_type=$TEST_TYPE -k cache_test
     fi
 
     if [[ "$TEST_MODE" == "DEFAULT" || $TEST_MODE == "CI_PART2" || "$TEST_MODE" == "DELTA_LAKE_ONLY" ]]; then

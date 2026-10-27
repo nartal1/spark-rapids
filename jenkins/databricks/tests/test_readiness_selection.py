@@ -63,10 +63,6 @@ class ReadinessSelectionTest(unittest.TestCase):
                 self.assertEqual("READINESS upstream" in result.stdout, mode != "CI_PART2")
                 self.assertIn("PRODUCT_TEST", result.stdout)
                 self.assertNotIn("--delta_lake", result.stdout)
-                native_calls = [line for line in result.stdout.splitlines()
-                                if line.startswith("PRODUCT_TEST --runtime_env=databricks")]
-                self.assertTrue(native_calls)
-                self.assertTrue(all("not delta_lake" in line for line in native_calls))
 
     def test_manual_and_other_runtimes_keep_integration_tests(self):
         for version, hook in (("18.3.", False), ("17.3.", True),
@@ -95,14 +91,6 @@ class ReadinessSelectionTest(unittest.TestCase):
         self.assertIn("READINESS databricks", result.stdout)
         self.assertNotIn("READINESS upstream", result.stdout)
         self.assertIn("PRODUCT_TEST", result.stdout)
-        self.assertIn("not delta_lake", result.stdout)
-
-    def test_ci_preserves_shuffle_and_pyarrow_selection(self):
-        result = self.run_script(mode="CI_PART2")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("-m (shuffle_test) and not delta_lake", result.stdout)
-        self.assertIn("-m (pyarrow_test) and not delta_lake --pyarrow_test", result.stdout)
-        self.assertIn("-m not delta_lake -k cache_test", result.stdout)
 
     def test_ci_part2_includes_files_matched_by_part1_substrings(self):
         result = self.run_script(mode="CI_PART2")
@@ -120,13 +108,11 @@ class ReadinessSelectionTest(unittest.TestCase):
                 result = self.run_script(version=version, hook=hook, mode="CI_PART2")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("--delta_lake", result.stdout)
-                self.assertNotIn("not delta_lake", result.stdout)
 
     def test_explicit_delta_only_mode_is_preserved(self):
         result = self.run_script(mode="DELTA_LAKE_ONLY")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("-m delta_lake --delta_lake", result.stdout)
-        self.assertNotIn("not delta_lake", result.stdout)
 
     def test_explicit_readiness_requires_hook_and_supported_mode(self):
         result = self.run_script(hook=False, override="1")
