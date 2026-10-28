@@ -11,7 +11,8 @@ An overview of testing can be found within the repository at:
 
 ## Databricks premerge integration tests
 
-Databricks Runtime 14.3, 17.3, and 18.3 use the same test-mode selection in
+For source-built premerge jobs, Databricks Runtime 14.3, 17.3, and 18.3 use the same
+test-mode selection in
 `jenkins/databricks/test.sh`:
 
 * `CI_PART1` runs upstream Spark smoke checks and the first group of integration tests.
