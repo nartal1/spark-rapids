@@ -84,6 +84,19 @@ def _assert_gpu_merge_processor(do_merge, data_path, conf, expect_write=True):
         f"{class_name} was not found in the captured MERGE plans"
 
 
+def _assert_cdf_rows_equal(data_path):
+    # The change feed holds the update pre and post images, which the data comparison misses.
+    cdf_rows = {}
+    for run in ["CPU", "GPU"]:
+        cdf_rows[run] = with_cpu_session(
+            lambda spark: sorted((tuple(row) for row in
+                                  read_delta_path_with_cdf(spark, data_path + "/" + run)
+                                  .select("a", "b", "c", "_change_type", "_commit_version")
+                                  .collect()), key=str),
+            conf=delta_merge_enabled_conf)
+    assert_equal(cdf_rows["CPU"], cdf_rows["GPU"])
+
+
 @allow_non_gpu(*delta_meta_allow)
 @delta_lake
 @ignore_order
@@ -1485,6 +1498,8 @@ def test_delta_merge_not_matched_by_source_schema_evolution_db173(spark_tmp_path
                                  .select("a", "b", "c").collect()),
             conf=delta_merge_enabled_conf)
         assert expected == actual, f"{run}: expected {expected}, got {actual}"
+    if use_cdf:
+        _assert_cdf_rows_equal(data_path)
 
 
 @allow_non_gpu(*delta_meta_allow)
@@ -1533,6 +1548,8 @@ def test_delta_merge_partial_update_schema_evolution_db173(spark_tmp_path, spark
                                  .select("a", "b", "c").collect()),
             conf=delta_merge_enabled_conf)
         assert expected == actual, f"{run}: expected {expected}, got {actual}"
+    if use_cdf:
+        _assert_cdf_rows_equal(data_path)
 
 
 @allow_non_gpu("ColumnarToRowExec", *delta_meta_allow)
