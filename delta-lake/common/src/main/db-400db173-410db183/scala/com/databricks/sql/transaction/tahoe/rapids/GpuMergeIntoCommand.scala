@@ -46,7 +46,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.catalog.CatalogTable
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
-import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, BasePredicate, EqualNullSafe, Expression, If, IsNull, Literal, NamedExpression, Not, Or, PredicateHelper, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, BasePredicate, CreateNamedStruct, EqualNullSafe, Expression, If, IsNull, Literal, NamedExpression, Not, Or, PredicateHelper, UnsafeProjection}
 import org.apache.spark.sql.catalyst.expressions.codegen.GeneratePredicate
 import org.apache.spark.sql.catalyst.plans.logical.{DeltaMergeIntoClause, DeltaMergeIntoMatchedClause, DeltaMergeIntoMatchedDeleteClause, DeltaMergeIntoMatchedUpdateClause, DeltaMergeIntoNotMatchedBySourceClause, DeltaMergeIntoNotMatchedBySourceDeleteClause, DeltaMergeIntoNotMatchedBySourceUpdateClause, DeltaMergeIntoNotMatchedClause, LogicalPlan, Project}
 import org.apache.spark.sql.catalyst.types.DataTypeUtils.toAttributes
@@ -58,7 +58,7 @@ import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.nvidia.DFUDFShims
-import org.apache.spark.sql.types.{DataTypes, LongType, NullType, StringType, StructField, StructType}
+import org.apache.spark.sql.types.{DataType, DataTypes, LongType, NullType, StringType, StructField, StructType}
 
 case class GpuMergeDataSizes(
     @JsonDeserialize(contentAs = classOf[java.lang.Long])
@@ -869,15 +869,20 @@ case class GpuMergeIntoCommand(
     val materializedValues = mutable.ArrayBuffer[NamedExpression]()
     def materializeNonDeterministic(
         exprs: Seq[Expression],
-        takesClause: Expression): Seq[Expression] = exprs.map {
-      case e if !e.deterministic =>
+        takesClause: Expression,
+        targetFields: Seq[StructField] = Nil): Seq[Expression] = exprs.zipWithIndex.map {
+      case (e, i) if !e.deterministic =>
+        // The value is evaluated here, before the clause output is typed, so an untyped NULL
+        // for a schema-evolved nested field has to get its target type now.
         val resolved = resolveOnJoinedPlan(Seq(e)).head
+        val typed = targetFields.lift(i).map(f => typeNullLiterals(resolved, f.dataType))
+          .getOrElse(resolved)
         val existing = joinedPlan.output.map(_.name) ++ materializedValues.map(_.name)
-        val alias = Alias(If(takesClause, resolved, Literal(null, resolved.dataType)),
+        val alias = Alias(If(takesClause, typed, Literal(null, typed.dataType)),
           uniqueColumnName(NON_DETERMINISTIC_VALUE_COL, existing))()
         materializedValues += alias
         alias.toAttribute
-      case e => e
+      case (e, _) => e
     }
 
     // The rows a clause acts on: the row kind, none of the earlier clauses of that kind taken,
@@ -950,9 +955,7 @@ case class GpuMergeIntoCommand(
       // processor concatenates this output with outputs that carry the column's real type, so
       // the NULL is typed with the target column's type.
       val typedUpdateExprs = updateExprs.zip(outputRowSchema.fields).map {
-        case (l: Literal, field) if l.value == null && l.dataType == NullType =>
-          Literal(null, field.dataType)
-        case (e, _) => e
+        case (e, field) => typeNullLiterals(e, field.dataType)
       } ++ updateExprs.drop(outputRowSchema.fields.length)
       val mainDataOutput = typedUpdateExprs :+ FalseLiteral :+ incrMetricExpr :+
           CDC_TYPE_NOT_CDC_LITERAL
@@ -1025,7 +1028,8 @@ case class GpuMergeIntoCommand(
     def clauseOutput(clause: DeltaMergeIntoClause, routing: Expression): Seq[Seq[Expression]] =
       clause match {
       case u: DeltaMergeIntoMatchedUpdateClause =>
-        updateOutput(materializeNonDeterministic(u.resolvedActions.map(_.expr), routing) ++
+        updateOutput(materializeNonDeterministic(u.resolvedActions.map(_.expr), routing,
+            outputRowSchema.fields.toSeq) ++
             rowTrackingUpdateExprs,
           And(incrUpdatedCountExpr, incrUpdatedMatchedCountExpr))
       case _: DeltaMergeIntoMatchedDeleteClause =>
@@ -1035,7 +1039,8 @@ case class GpuMergeIntoCommand(
             rowTrackingInsertExprs,
           incrInsertedCountExpr)
       case u: DeltaMergeIntoNotMatchedBySourceUpdateClause =>
-        updateOutput(materializeNonDeterministic(u.resolvedActions.map(_.expr), routing) ++
+        updateOutput(materializeNonDeterministic(u.resolvedActions.map(_.expr), routing,
+            outputRowSchema.fields.toSeq) ++
             rowTrackingUpdateExprs,
           And(incrUpdatedCountExpr, incrUpdatedNotMatchedBySourceCountExpr))
       case _: DeltaMergeIntoNotMatchedBySourceDeleteClause =>
@@ -1322,6 +1327,25 @@ case class GpuMergeIntoCommand(
   private def metricUpdateExpr(name: String, deterministic: Boolean): Expression = {
     makeMetricUpdateUDF(name, deterministic).expr
   }
+
+  /**
+   * Gives an untyped NULL literal the type of the target column it is written to. A partial
+   * update of a struct column that schema evolution extended carries the same untyped NULL for
+   * the new nested field, inside the struct constructor, so the struct's fields are typed too.
+   */
+  private def typeNullLiterals(expr: Expression, dataType: DataType): Expression =
+    (expr, dataType) match {
+      case (l: Literal, _) if l.value == null && l.dataType == NullType =>
+        Literal(null, dataType)
+      case (struct: CreateNamedStruct, structType: StructType) =>
+        val typedChildren = struct.children.grouped(2).flatMap {
+          case Seq(name, value) =>
+            val fieldType = structType.fields.find(_.name == name.toString).map(_.dataType)
+            Seq(name, fieldType.map(typeNullLiterals(value, _)).getOrElse(value))
+        }.toSeq
+        CreateNamedStruct(typedChildren)
+      case _ => expr
+    }
 
   private def getTargetOutputCols(txn: OptimisticTransaction): Seq[NamedExpression] = {
     txn.metadata.schema.map { col =>

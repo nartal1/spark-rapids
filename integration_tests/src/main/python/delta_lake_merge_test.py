@@ -42,7 +42,7 @@ delta_merge_no_cpu_bridge_conf = copy_and_update(
 def merge_deletion_vector_values_with_xfail_reasons(enabled_xfail_reason=None):
     values = dml_deletion_vector_values_with_xfail_reasons(
         enabled_xfail_reason=enabled_xfail_reason)
-    if is_oss_delta_lake_40():
+    if is_oss_delta_lake_40_to_43():
         # Delta's DV processing joins table-state metadata to touched file paths on the CPU.
         # Permit those nodes only for the DV-enabled case, while asserting the GPU MERGE ran.
         return [values[0], pytest.param(
@@ -84,14 +84,14 @@ def _assert_gpu_merge_processor(do_merge, data_path, conf, expect_write=True):
         f"{class_name} was not found in the captured MERGE plans"
 
 
-def _assert_cdf_rows_equal(data_path):
+def _assert_cdf_rows_equal(data_path, columns=("a", "b", "c")):
     # The change feed holds the update pre and post images, which the data comparison misses.
     cdf_rows = {}
     for run in ["CPU", "GPU"]:
         cdf_rows[run] = with_cpu_session(
             lambda spark: sorted((tuple(row) for row in
                                   read_delta_path_with_cdf(spark, data_path + "/" + run)
-                                  .select("a", "b", "c", "_change_type", "_commit_version")
+                                  .select(*columns, "_change_type", "_commit_version")
                                   .collect()), key=str),
             conf=delta_merge_enabled_conf)
     assert_equal(cdf_rows["CPU"], cdf_rows["GPU"])
@@ -1552,6 +1552,107 @@ def test_delta_merge_partial_update_schema_evolution_db173(spark_tmp_path, spark
         _assert_cdf_rows_equal(data_path)
 
 
+@allow_non_gpu(*delta_meta_allow)
+@delta_lake
+@ignore_order
+@pytest.mark.skipif(not is_databricks173_or_later(),
+                    reason="Schema evolution MERGE processor typing is checked on Databricks 17.3+")
+@pytest.mark.parametrize("use_cdf", [False, True], ids=idfn)
+def test_delta_merge_partial_struct_update_schema_evolution_db173(spark_tmp_path,
+                                                                  spark_tmp_table_factory,
+                                                                  use_cdf):
+    # The INSERT clause adds the nested field s.y to the target. The UPDATE clause sets only
+    # s.x, so the new nested field in its output has to be typed like the one in the insert
+    # output for the GPU processor to concatenate them.
+    data_path = spark_tmp_path + "/DELTA_DATA"
+    src_table = spark_tmp_table_factory.get()
+
+    def src_table_func(spark):
+        return spark.createDataFrame([(1, (10, "y1")), (3, (30, "y3"))],
+                                     "a INT, s STRUCT<x: INT, y: STRING>")
+
+    def dest_table_func(spark):
+        return spark.createDataFrame([(1, (1,)), (2, (2,)), (4, (4,))], "a INT, s STRUCT<x: INT>")
+
+    def setup_tables(spark):
+        setup_delta_dest_tables(spark, data_path, dest_table_func,
+                                use_cdf=use_cdf, enable_deletion_vectors=False)
+        src_table_func(spark).createOrReplaceTempView(src_table)
+
+    def do_merge(spark, path):
+        src_table_func(spark).createOrReplaceTempView(src_table)
+        return spark.sql(
+            "MERGE WITH SCHEMA EVOLUTION INTO delta.`{path}` AS dest USING {src_table} AS src "
+            "ON dest.a = src.a "
+            "WHEN MATCHED THEN UPDATE SET dest.s.x = src.s.x "
+            "WHEN NOT MATCHED THEN INSERT * "
+            .format(path=path, src_table=src_table)).collect()
+
+    with_cpu_session(setup_tables)
+    _assert_gpu_merge_processor(do_merge, data_path, delta_merge_no_cpu_bridge_conf)
+    expected = [(1, 10, None), (2, 2, None), (3, 30, "y3"), (4, 4, None)]
+    for run in ["CPU", "GPU"]:
+        actual = with_cpu_session(
+            lambda spark: sorted(tuple(row) for row in
+                                 read_delta_path(spark, data_path + "/" + run)
+                                 .select("a", "s.x", "s.y").collect()),
+            conf=delta_merge_enabled_conf)
+        assert expected == actual, f"{run}: expected {expected}, got {actual}"
+    if use_cdf:
+        _assert_cdf_rows_equal(data_path, columns=("a", "s.x", "s.y"))
+
+
+@allow_non_gpu(*delta_meta_allow)
+@delta_lake
+@ignore_order
+@pytest.mark.skipif(not is_databricks173_or_later(),
+                    reason="Schema evolution MERGE processor typing is checked on Databricks 17.3+")
+@pytest.mark.parametrize("use_cdf", [False, True], ids=idfn)
+def test_delta_merge_nondeterministic_struct_update_schema_evolution_db173(spark_tmp_path,
+                                                                           spark_tmp_table_factory,
+                                                                           use_cdf):
+    # Same shape as the partial struct update, but the updated nested value is non-deterministic.
+    # That value is evaluated in a projection ahead of the clause output, so the new nested
+    # field s.y has to be typed before that evaluation. rand(7) < 2 is always true, which keeps
+    # the expected values deterministic.
+    data_path = spark_tmp_path + "/DELTA_DATA"
+    src_table = spark_tmp_table_factory.get()
+
+    def src_table_func(spark):
+        return spark.createDataFrame([(1, (10, "y1")), (3, (30, "y3"))],
+                                     "a INT, s STRUCT<x: INT, y: STRING>")
+
+    def dest_table_func(spark):
+        return spark.createDataFrame([(1, (1,)), (2, (2,)), (4, (4,))], "a INT, s STRUCT<x: INT>")
+
+    def setup_tables(spark):
+        setup_delta_dest_tables(spark, data_path, dest_table_func,
+                                use_cdf=use_cdf, enable_deletion_vectors=False)
+        src_table_func(spark).createOrReplaceTempView(src_table)
+
+    def do_merge(spark, path):
+        src_table_func(spark).createOrReplaceTempView(src_table)
+        return spark.sql(
+            "MERGE WITH SCHEMA EVOLUTION INTO delta.`{path}` AS dest USING {src_table} AS src "
+            "ON dest.a = src.a "
+            "WHEN MATCHED THEN UPDATE SET dest.s.x = src.s.x + CAST(rand(7) < 2 AS INT) "
+            "WHEN NOT MATCHED THEN INSERT * "
+            .format(path=path, src_table=src_table)).collect()
+
+    with_cpu_session(setup_tables)
+    _assert_gpu_merge_processor(do_merge, data_path, delta_merge_no_cpu_bridge_conf)
+    expected = [(1, 11, None), (2, 2, None), (3, 30, "y3"), (4, 4, None)]
+    for run in ["CPU", "GPU"]:
+        actual = with_cpu_session(
+            lambda spark: sorted(tuple(row) for row in
+                                 read_delta_path(spark, data_path + "/" + run)
+                                 .select("a", "s.x", "s.y").collect()),
+            conf=delta_merge_enabled_conf)
+        assert expected == actual, f"{run}: expected {expected}, got {actual}"
+    if use_cdf:
+        _assert_cdf_rows_equal(data_path, columns=("a", "s.x", "s.y"))
+
+
 @allow_non_gpu("ColumnarToRowExec", *delta_meta_allow)
 @delta_lake
 @ignore_order
@@ -1683,7 +1784,7 @@ def test_delta_merge_dataframe_api(spark_tmp_path, use_cdf, num_slices, enable_d
             .execute()
     read_func = read_delta_path_with_cdf if use_cdf else read_delta_path
     expected_command = ("GpuMergeIntoCommand"
-                        if is_oss_delta_lake_40() and enable_deletion_vector else None)
+                        if is_oss_delta_lake_40_to_43() and enable_deletion_vector else None)
     assert_gpu_and_cpu_writes_are_equal_collect(
         do_merge, read_func, data_path, conf=delta_merge_enabled_conf,
         expected_command=expected_command)
@@ -1867,7 +1968,7 @@ def test_delta_dv_read_user_internal_row_index_column(
 
 
 @allow_non_gpu_conditional(
-    is_oss_delta_lake_40() or is_oss_delta_lake_42_or_43(),
+    is_oss_delta_lake_40_to_43(),
     "BroadcastHashJoinExec", "BroadcastExchangeExec")
 @allow_non_gpu(*delta_meta_allow)
 @delta_lake
