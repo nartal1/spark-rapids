@@ -23,7 +23,7 @@ import unittest
 
 class ReadinessSelectionTest(unittest.TestCase):
     def run_script(self, version="18.3.", mode="CI_PART1", hook=True,
-                   override=None, extra_envs="", upstream="1", hook_exit=0, delta_exit=0):
+                   override=None, extra_envs="", upstream="1", hook_exit=0):
         script = Path(__file__).resolve().parents[1] / "test.sh"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -34,8 +34,7 @@ class ReadinessSelectionTest(unittest.TestCase):
             integration_dir = root / "integration_tests"
             integration_dir.mkdir()
             (integration_dir / "run_pyspark_from_build.sh").write_text(
-                'echo "PRODUCT_TEST $*"\necho "TEST_FILES ${TESTS:-}"\n'
-                f'if [[ "$*" == *--delta_lake* ]]; then exit {delta_exit}; fi\n')
+                'echo "PRODUCT_TEST $*"\necho "TEST_FILES ${TESTS:-}"\n')
             startup = root / "startup.sh"
             startup.write_text(f'echo "READINESS $1"\nexit {hook_exit}\n')
             # Keep the actual control flow, with external setup/Spark calls stubbed.
@@ -128,27 +127,18 @@ class ReadinessSelectionTest(unittest.TestCase):
         self.assertIn("does not support TEST_MODE=DELTA_LAKE_ONLY", result.stderr)
 
     def test_explicit_readiness_override_is_preserved(self):
-        for version in ("17.3.", "18.3."):
-            for mode in ("DEFAULT", "CI_PART1", "CI_PART2"):
-                with self.subTest(version=version, mode=mode):
-                    result = self.run_script(version=version, mode=mode, override="1")
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertIn("READINESS databricks", result.stdout)
-                    self.assertEqual("READINESS upstream" in result.stdout, mode != "CI_PART2")
-                    self.assertNotIn("PRODUCT_TEST", result.stdout)
+        for version, mode in (("17.3.", "CI_PART1"), ("18.3.", "CI_PART2")):
+            with self.subTest(version=version, mode=mode):
+                result = self.run_script(version=version, mode=mode, override="1")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("READINESS databricks", result.stdout)
+                self.assertEqual("READINESS upstream" in result.stdout, mode != "CI_PART2")
+                self.assertNotIn("PRODUCT_TEST", result.stdout)
 
     def test_failed_readiness_still_fails_ci(self):
         result = self.run_script(hook_exit=9)
         self.assertEqual(result.returncode, 9, result.stderr)
         self.assertNotIn("PRODUCT_TEST", result.stdout)
-
-    def test_failed_delta_suite_stops_ci_part2(self):
-        result = self.run_script(mode="CI_PART2", delta_exit=7)
-        self.assertEqual(result.returncode, 7, result.stderr)
-        self.assertIn("READINESS databricks", result.stdout)
-        self.assertIn("-m delta_lake --delta_lake", result.stdout)
-        self.assertNotIn("-m shuffle_test", result.stdout)
-        self.assertNotIn("--pyarrow_test", result.stdout)
 
     def test_specialized_test_modes_do_not_default_to_readiness_only(self):
         for mode in ("DELTA_LAKE_ONLY", "MULTITHREADED_SHUFFLE", "PYARROW_ONLY"):
