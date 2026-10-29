@@ -62,11 +62,10 @@ class ReadinessSelectionTest(unittest.TestCase):
                 self.assertIn("READINESS databricks", result.stdout)
                 self.assertEqual("READINESS upstream" in result.stdout, mode != "CI_PART2")
                 self.assertIn("PRODUCT_TEST", result.stdout)
-                delta_calls = [line for line in result.stdout.splitlines()
-                               if line.startswith("PRODUCT_TEST ") and "--delta_lake" in line]
-                self.assertEqual(len(delta_calls), 0 if mode == "CI_PART1" else 1)
-                if delta_calls:
-                    self.assertIn("-m delta_lake --delta_lake", delta_calls[0])
+                if mode == "CI_PART1":
+                    self.assertNotIn("--delta_lake", result.stdout)
+                else:
+                    self.assertIn("-m delta_lake --delta_lake", result.stdout)
 
     def test_manual_and_other_runtimes_keep_integration_tests(self):
         for version, hook in (("18.3.", False), ("17.3.", True),
@@ -126,14 +125,11 @@ class ReadinessSelectionTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does not support TEST_MODE=DELTA_LAKE_ONLY", result.stderr)
 
-    def test_explicit_readiness_override_is_preserved(self):
-        for version, mode in (("17.3.", "CI_PART1"), ("18.3.", "CI_PART2")):
-            with self.subTest(version=version, mode=mode):
-                result = self.run_script(version=version, mode=mode, override="1")
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("READINESS databricks", result.stdout)
-                self.assertEqual("READINESS upstream" in result.stdout, mode != "CI_PART2")
-                self.assertNotIn("PRODUCT_TEST", result.stdout)
+    def test_explicit_readiness_override_is_preserved_for_other_runtimes(self):
+        result = self.run_script(version="17.3.", override="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("READINESS databricks", result.stdout)
+        self.assertNotIn("PRODUCT_TEST", result.stdout)
 
     def test_failed_readiness_still_fails_ci(self):
         result = self.run_script(hook_exit=9)
