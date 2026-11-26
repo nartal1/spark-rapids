@@ -838,8 +838,9 @@ case class GpuBroadcastExchangeExec(
   /**
    * Method to call after all RAPIDS Accelerator optimizations have been applied
    * to indicate this node and its children are done being planned by the RAPIDS Accelerator.
-   * Some optimizations, such as AQE exchange reuse fixup, need to know when a node will no longer
-   * be updated so it can be tracked for reuse.
+   * Some optimizations, such as replacing reused CPU exchanges in AQE query stages
+   * (GpuOverrides.fixupCpuReusedExchanges), need to know when a node will no longer be updated
+   * so it can be tracked for reuse.
    */
   def markGpuPlanningComplete(): Unit = {
     if (!_isGpuPlanningComplete) {
@@ -860,18 +861,22 @@ object ExchangeMappingCache extends Logging {
   // point to their corresponding keys, so the keys will not be collected unless the value
   // can be collected. The values will be held during normal Catalyst planning until those
   // plans are no longer referenced, allowing both the key and value to be reaped at that point.
+  // Planners of concurrent sessions share the cache, and a WeakHashMap is not thread safe, so it
+  // is only accessed while holding its lock. Even a get can modify it, since it expunges entries
+  // whose keys were collected.
   private val cache = new mutable.WeakHashMap[Exchange, WeakReference[Exchange]]
 
   /** Try to find a recent GPU exchange that has replaced the specified CPU canonical plan. */
-  def findGpuExchangeReplacement(cpuCanonical: Exchange): Option[Exchange] = {
+  def findGpuExchangeReplacement(cpuCanonical: Exchange): Option[Exchange] = cache.synchronized {
     cache.get(cpuCanonical).flatMap(_.get)
   }
 
   /** Add a GPU exchange to the exchange cache */
-  def trackExchangeMapping(cpuCanonical: Exchange, gpuExchange: Exchange): Unit = {
-    val old = findGpuExchangeReplacement(cpuCanonical)
-    if (!old.exists(_.asInstanceOf[GpuBroadcastExchangeExec].isGpuPlanningComplete)) {
-      cache.put(cpuCanonical, WeakReference(gpuExchange))
+  def trackExchangeMapping(cpuCanonical: Exchange, gpuExchange: Exchange): Unit =
+    cache.synchronized {
+      val old = findGpuExchangeReplacement(cpuCanonical)
+      if (!old.exists(_.asInstanceOf[GpuBroadcastExchangeExec].isGpuPlanningComplete)) {
+        cache.put(cpuCanonical, WeakReference(gpuExchange))
+      }
     }
-  }
 }

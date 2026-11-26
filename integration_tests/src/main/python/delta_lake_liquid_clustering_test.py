@@ -239,6 +239,50 @@ def test_delta_append_sql_liquid_clustering(spark_tmp_path, spark_tmp_table_fact
     assert_liquid_clustering_delta_logs_equivalent(data_path)
 
 
+@allow_non_gpu(*delta_meta_allow, "CreateTableExec")
+@delta_lake
+@ignore_order
+@pytest.mark.skipif(not is_databricks173_or_later(),
+                    reason="Databricks plans the query of a clustered write a second time")
+def test_delta_append_sql_liquid_clustering_broadcast_planned_twice(spark_tmp_path,
+                                                                    spark_tmp_table_factory):
+    # https://github.com/NVIDIA/cudf-spark/issues/17133
+    # For a clustered table Databricks plans the query of the INSERT again with
+    # QueryExecution.prepareExecutedPlan to estimate the ingestion size. The broadcast in that
+    # plan must not be reused from another plan with the same broadcast, here one that is kept
+    # alive so that garbage collection cannot hide the problem.
+    def write_func(spark, path):
+        table_name = spark_tmp_table_factory.get()
+        view_name = spark_tmp_table_factory.get()
+        create_clustered_table_sql(spark, table_name, path)
+        gen_df_and_replace_view(spark, view_name)
+        # The one-row side is broadcast for the cross join. d is never above 3, so n is always 0
+        # and the inserted rows are deterministic.
+        query = f"""
+            SELECT s.a + ks.n AS a, s.b, s.c, s.d, s.e, s.uniq_int
+            FROM {view_name} s CROSS JOIN
+              (SELECT coalesce(max(a), 0) AS n FROM {view_name} WHERE d > 3) ks
+        """
+        execution = spark._jvm.org.apache.spark.sql.execution.QueryExecution
+        held_plan = execution.prepareExecutedPlan(
+            spark._jsparkSession, spark.sql(query)._jdf.queryExecution().optimizedPlan())
+        if spark.conf.get("spark.rapids.sql.enabled", "false") == "true":
+            assert "GpuBroadcastExchange" in held_plan.toString(), held_plan.toString()
+        spark.sql(f"INSERT INTO {table_name} {query}")
+        # Keeps the earlier plan, and with it its broadcast, alive until after the INSERT.
+        assert held_plan is not None
+
+    data_path = spark_tmp_path + "/DELTA_LIQUID_CLUSTER"
+
+    assert_gpu_and_cpu_writes_are_equal_collect(
+        write_func,
+        lambda spark, path: spark.read.format("delta").load(path),
+        data_path,
+        conf=delta_writes_enabled_conf
+    )
+    assert_liquid_clustering_delta_logs_equivalent(data_path)
+
+
 @allow_non_gpu(*delta_meta_allow)
 @delta_lake
 @ignore_order

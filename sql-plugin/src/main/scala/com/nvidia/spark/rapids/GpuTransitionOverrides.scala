@@ -40,7 +40,7 @@ import org.apache.spark.sql.execution.exchange.{BroadcastExchangeLike, ENSURE_RE
   Exchange, ReusedExchangeExec, ShuffleExchangeLike}
 import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, BroadcastNestedLoopJoinExec}
 import org.apache.spark.sql.rapids.{GpuDataSourceScanExec, GpuFileSourceScanExec, GpuShuffleEnv, GpuTaskMetrics}
-import org.apache.spark.sql.rapids.execution.{ExchangeMappingCache, GpuBroadcastExchangeExec, GpuBroadcastExchangeExecBase, GpuBroadcastToRowExec, GpuCustomShuffleReaderExec, GpuHashJoin, GpuShuffleExchangeExecBase, GpuSubqueryBroadcastExec}
+import org.apache.spark.sql.rapids.execution.{GpuBroadcastExchangeExec, GpuBroadcastExchangeExecBase, GpuBroadcastToRowExec, GpuCustomShuffleReaderExec, GpuHashJoin, GpuShuffleExchangeExecBase, GpuSubqueryBroadcastExec}
 import org.apache.spark.sql.rapids.execution.GpuDriverlessBroadcastHashJoinExec
 import org.apache.spark.sql.rapids.execution.PCBSNullSafeRowToColumnarExec
 import org.apache.spark.sql.types.StructType
@@ -830,20 +830,28 @@ class GpuTransitionOverrides(sparkSession: SparkSession = null) extends Rule[Spa
 
   /**
    * On some Spark platforms, AQE planning ends up not reusing as many GPU exchanges as possible.
-   * This searches the plan for any GPU broadcast exchanges and checks if their original CPU plans
-   * match any other previously seen GPU broadcasts with the same CPU plan.
+   * This searches the plan for GPU broadcast exchanges whose original CPU plans match an earlier
+   * GPU broadcast in the same plan, and replaces the later ones with a reuse of the earlier one.
+   *
+   * Only exchanges in the plan being fixed are reused. The plan can be prepared outside of AQE
+   * while AQE is enabled, e.g. Databricks plans a clustered Delta write a second time with
+   * QueryExecution.prepareExecutedPlan, and a reuse whose original exchange is in another plan
+   * makes Databricks' ReuseExchangeAndSubquery fail with "key not found".
    */
   private def fixupAdaptiveExchangeReuse(p: SparkPlan): SparkPlan = {
+    // The first GPU broadcast seen for each CPU plan. transformUp visits children before their
+    // parents, so the exchange that is kept is always visited before the ones that reuse it.
+    val firstByCpuPlan = mutable.HashMap.empty[Exchange, GpuBroadcastExchangeExec]
+
     def doFixup(plan: SparkPlan): SparkPlan = {
       plan.transformUp {
         case g: GpuBroadcastExchangeExec =>
-          ExchangeMappingCache.findGpuExchangeReplacement(g.cpuCanonical).map { other =>
-            if (other eq g) {
+          firstByCpuPlan.get(g.cpuCanonical) match {
+            case Some(first) if first ne g => ReusedExchangeExec(g.output, first)
+            case _ =>
+              firstByCpuPlan.put(g.cpuCanonical, g)
               g
-            } else {
-              ReusedExchangeExec(g.output, other)
-            }
-          }.getOrElse(g)
+          }
       }
     }
 
@@ -914,7 +922,7 @@ class GpuTransitionOverrides(sparkSession: SparkSession = null) extends Rule[Spa
                 // DPP-side attributes that downstream subquery expressions reference, while
                 // reading from the matched main-plan exchange. The AQE fixup
                 // fixupAdaptiveExchangeReuse uses the same shape (its g.output is the
-                // DPP-side attributes from the in-pass collected map).
+                // output of the exchange being replaced).
                 val reused = ReusedExchangeExec(dpp.output, matched)
                 val newGsb = gsb.withNewChildren(Seq(reused))
                   .asInstanceOf[GpuSubqueryBroadcastExec]
